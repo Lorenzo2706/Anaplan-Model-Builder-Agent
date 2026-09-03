@@ -24,29 +24,35 @@ Four modes:
   export path, useful for debugging or as a fallback if the API path changes.
 
 ```powershell
-# Always pass --out with the model's own folder under its customer's tree.
-$out = "customers/CustomerA/raw/models/ModelA"
+# For a model already registered in models.py, omit --out entirely — the
+# output folder is derived from that entry's own folder + raw_dir.
+python tools/scrape_model_data.py modela              # 7 fast files
+python tools/scrape_model_data.py modela --full       # all 15 files
+python tools/scrape_model_data.py modela --rest-only  # 5 files, no browser
+python tools/scrape_model_data.py modela --ui-only    # pure UI fallback
 
-python tools/scrape_model_data.py modela --out $out              # 7 fast files
-python tools/scrape_model_data.py modela --out $out --full       # all 15 files
-python tools/scrape_model_data.py modela --out $out --rest-only  # 5 files, no browser
-python tools/scrape_model_data.py modela --out $out --ui-only    # pure UI fallback
-python tools/scrape_model_data.py modela --out "C:/temp/probe"   # scratch export
+# --out is for a scratch export only (e.g. a temp dir to diff before
+# promoting into the vault) — it is created if missing.
+python tools/scrape_model_data.py modela --out "C:/temp/probe"
 ```
 
-> [!important] Pass `--out`; don't rely on the default output folder.
-> Model CSVs live at `customers/<Customer>/raw/models/<Model>/` — every model
-> belongs to exactly one customer, and CSV filenames are identical across
-> models, so the folder is the only disambiguator. The script's *default*
-> output folder is still the pre-multi-customer `<repo>/raw/models/<name>`,
-> which no longer matches the vault layout and will be created empty at the
-> repo root if you omit `--out`.
+> [!important] Omitting `--out` is the safe default for a registered model.
+> The output folder is `customers/<Customer>/raw/models/<Model>/`, derived
+> from the registry entry's own `folder` + `raw_dir` fields — never from the
+> shortcut's display name. That folder must **already exist**: `resolve_out_dir`
+> raises, naming the path, rather than creating it — so a typo'd `raw_dir` in
+> `models.py` cannot silently manufacture a plausible-looking empty folder
+> instead of writing into the real one.
 >
-> `--name` sets the **display name** used in console output. It currently also
-> feeds that legacy default path, but it is not a folder selector — a
-> shortcut's display name and its export folder legitimately differ (a
-> shortcut named `UMD` can export into a folder called `AAC`). Use `--out` to
-> choose where files land.
+> An explicit `--out` is different: it **is** created with `exist_ok=True` if
+> missing, because it's routinely a scratch export destination. Reach for
+> `--out` only for that scratch case, or before a model has a registry entry
+> at all — not as the everyday invocation.
+>
+> `--name` sets the **display name** used in console output only. It does not
+> affect the output folder at all — a shortcut's display name and its export
+> folder legitimately differ (a shortcut named `modela` can export into a
+> folder called `ModelA 2.0`).
 
 ## Authentication
 
@@ -180,8 +186,14 @@ have those for a model yet, fetch the live list instead of hunting through the
 Anaplan UI:
 
 ```powershell
-python tools/scrape_model_data.py --list-models
+python tools/scrape_model_data.py --list-models --shard eu3
 ```
+
+`--shard` is required here: every other mode reads its shard from the model's
+own `models.py` registry entry, but `--list-models` runs *before* that entry
+exists — there is nothing to read a shard from, so it must be told explicitly
+which shard to log into (e.g. `eu2a`, `eu3`, `eu4`, `eu9`). Omitting it exits
+non-zero rather than guessing a default shard.
 
 Logs in, calls the same `springboard-platform-gateway-service/models` API the
 interactive `scraper_ux.py` wizard uses for "Browse all models…", and prints
@@ -241,8 +253,8 @@ Roles Actions.csv
 ### Usage
 
 ```powershell
-# Export into the model's folder under its customer's tree
-python tools/scrape_model_data.py modela --out "customers/CustomerA/raw/models/ModelA" --ui-only
+# Registered model: omit --out, the folder is derived from the registry entry
+python tools/scrape_model_data.py modela --ui-only
 
 # Export into a scratch dir (e.g. to diff before promoting into the vault)
 python tools/scrape_model_data.py modela --out "C:/temp/probe" --ui-only
@@ -252,8 +264,7 @@ As a library:
 
 ```python
 from scrape_model_data import download_model_exports
-results = download_model_exports(
-    "modela", out_dir=r"customers/CustomerA/raw/models/ModelA")
+results = download_model_exports("modela")   # default: registry-derived out_dir
 # results: {filename: {"ok": bool, "saved_path": str|None, "error": str|None}}
 ```
 
@@ -268,10 +279,12 @@ step is needed unless SSO is enabled. It prints a per-grid ✅/✗ summary and a
    `customer_id` can be reused **only** by models in the same customer's
    tenant and workspace — a second customer has its own tenant GUID, its own
    workspaces, and possibly its own Anaplan shard, so nothing here is global.
-2. Mirror the example entry in `models.py` with `customer_id`, `workspace_id`,
-   `model_id`, then call
-   `python tools/scrape_model_data.py <prefix> --out "customers/<Customer>/raw/models/<Model>" --ui-only`
-   (or `tools/scrape_model_data.py`, which shares the same shortcut).
+2. Mirror the example entry in `models.py` with `folder`, `raw_dir`, `shard`,
+   `customer_id`, `workspace_id`, `model_id`, then call
+   `python tools/scrape_model_data.py <prefix> --ui-only` — the output folder
+   is derived from the entry's `folder` + `raw_dir`, so no `--out` is needed
+   once the entry exists (and that folder must already exist in the vault; see
+   the callout above).
 
 (Raw model-id GUIDs are rejected on purpose — a bare id has no reliable way to infer
 its workspace, so register a shortcut instead.)

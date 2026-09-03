@@ -123,9 +123,12 @@ to Phase 1 with the provided paths.
    - **No shortcut yet** (expected for any model not already registered — `tools/models.py`
      ships with an empty `MODELS` dict plus one commented-out example) → run:
      ```powershell
-     python tools/scrape_model_data.py --list-models
+     python tools/scrape_model_data.py --list-models --shard eu3
      ```
-     This logs in and calls the live Anaplan model-list API directly — no `models.py`
+     `--shard` is required here — every other mode reads its shard from the model's own
+     `models.py` registry entry, but `--list-models` runs before that entry exists, so it has
+     no entry to infer a shard from and must be told explicitly (e.g. `eu2a`, `eu3`, `eu4`,
+     `eu9`). This logs in and calls the live Anaplan model-list API directly — no `models.py`
      shortcut needed for this step. It prints JSON: `model_name`, `model_id`,
      `workspace_name`, `workspace_id`, `customer_id` for every model visible to this account.
      Filter to candidates matching the requested name and **show them to the user for
@@ -159,20 +162,23 @@ the time you want to diff.
 ## Phase 2B — Run the scraper
 
 ```powershell
-python tools/scrape_model_data.py <shortcut> --out "<CUSTOMER_ROOT>/raw/models/<exact existing folder name>"
+python tools/scrape_model_data.py <shortcut>
 ```
 
-Always pass `--out` set to the model's existing folder under
-`<CUSTOMER_ROOT>/raw/models/`. Do not rely on the script's default output folder: it is the
-pre-multi-customer `<repo>/raw/models/<name>`, which is not where this vault keeps model
-CSVs, and omitting `--out` creates an empty folder at the repo root instead of refreshing
-the model.
+Omit `--out` for a registered model — that is now the safe default. The output folder is
+derived from the shortcut's own `models.py` entry (`folder` + `raw_dir`), which must already
+match `<CUSTOMER_ROOT>/raw/models/<exact existing folder name>`; if it doesn't,
+`resolve_out_dir` raises rather than silently creating a wrong-named sibling folder, so a
+`raw_dir`/`folder` typo in `models.py` surfaces immediately instead of manufacturing a
+plausible-looking empty folder. Only pass `--out` for a scratch export (e.g. a temp dir to
+diff before promoting into the vault) — an explicit `--out` **is** created if missing
+(`exist_ok=True`), which is exactly why it must not be used as the everyday invocation for a
+registered model: it bypasses the pre-exist guard that `raw_dir`/`folder` typos rely on.
 
-`--name` is a display name for the script's console output, not a folder selector — a
-shortcut's display name in `models.py` can differ from the vault's folder name (e.g. a
-shortcut named `"ModelA"` might correspond to a folder called `"ModelA 2.0"`). Pass it only
-if you want the log to read a particular way; getting the **`--out`** path wrong is what
-creates a second, wrong-named sibling folder instead of updating the existing one.
+`--name` is a display name for the script's console output only — it does not affect the
+output folder at all. A shortcut's display name in `models.py` can differ from the vault's
+folder name (e.g. a shortcut named `"modela"` might correspond to a folder called
+`"ModelA 2.0"`); pass `--name` only if you want the log to read a particular way.
 
 Read the script's own summary output — a ✅/✗ (or `ok`/`--`) line per target file plus a
 produced-file count (7 or 15 depending on mode):

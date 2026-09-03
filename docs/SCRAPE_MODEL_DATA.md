@@ -24,12 +24,29 @@ Four modes:
   export path, useful for debugging or as a fallback if the API path changes.
 
 ```powershell
-python tools/scrape_model_data.py modela --name "ModelA"             # 7 fast files
-python tools/scrape_model_data.py modela --name "ModelA" --full      # all 15 files
-python tools/scrape_model_data.py modela --name "ModelA" --rest-only # 5 files, no browser
-python tools/scrape_model_data.py modela --name "ModelA" --ui-only   # pure UI fallback
-python tools/scrape_model_data.py modela --out "C:/temp/modela_export"    # explicit folder
+# Always pass --out with the model's own folder under its customer's tree.
+$out = "customers/CustomerA/raw/models/ModelA"
+
+python tools/scrape_model_data.py modela --out $out              # 7 fast files
+python tools/scrape_model_data.py modela --out $out --full       # all 15 files
+python tools/scrape_model_data.py modela --out $out --rest-only  # 5 files, no browser
+python tools/scrape_model_data.py modela --out $out --ui-only    # pure UI fallback
+python tools/scrape_model_data.py modela --out "C:/temp/probe"   # scratch export
 ```
+
+> [!important] Pass `--out`; don't rely on the default output folder.
+> Model CSVs live at `customers/<Customer>/raw/models/<Model>/` — every model
+> belongs to exactly one customer, and CSV filenames are identical across
+> models, so the folder is the only disambiguator. The script's *default*
+> output folder is still the pre-multi-customer `<repo>/raw/models/<name>`,
+> which no longer matches the vault layout and will be created empty at the
+> repo root if you omit `--out`.
+>
+> `--name` sets the **display name** used in console output. It currently also
+> feeds that legacy default path, but it is not a folder selector — a
+> shortcut's display name and its export folder legitimately differ (a
+> shortcut named `UMD` can export into a folder called `AAC`). Use `--out` to
+> choose where files land.
 
 ## Authentication
 
@@ -203,7 +220,7 @@ future Anaplan release.
 ### What it produces
 
 All 13 files land in the output folder, matching the naming used under
-`raw/models/<Model>/`:
+`customers/<Customer>/raw/models/<Model>/`:
 
 ```
 Modules.csv          Line Items.csv       Line Item Subsets.csv
@@ -214,7 +231,7 @@ Roles Actions.csv
 ```
 
 > **Not every model's raw folder will have this exact set.** A model's
-> `raw/models/<Model>/` folder may have fewer than these 13 files (e.g. it
+> `customers/<Customer>/raw/models/<Model>/` folder may have fewer than these 13 files (e.g. it
 > predates the scraper, or the export includes files the scraper doesn't
 > produce at all, like `Imports.csv`/`Import Data Sources.csv`). Re-running
 > the scraper only ever touches these 13 filenames — anything else already in
@@ -224,18 +241,19 @@ Roles Actions.csv
 ### Usage
 
 ```powershell
-# Export into raw/models/<Model Name>/ (the default)
-python tools/scrape_model_data.py modela --name "ModelA" --ui-only
+# Export into the model's folder under its customer's tree
+python tools/scrape_model_data.py modela --out "customers/CustomerA/raw/models/ModelA" --ui-only
 
-# Export into an explicit folder (e.g. a scratch dir for testing)
-python tools/scrape_model_data.py modela --out "C:/temp/modela_export" --ui-only
+# Export into a scratch dir (e.g. to diff before promoting into the vault)
+python tools/scrape_model_data.py modela --out "C:/temp/probe" --ui-only
 ```
 
 As a library:
 
 ```python
 from scrape_model_data import download_model_exports
-results = download_model_exports("modela", out_dir=r"raw/models/ModelA")
+results = download_model_exports(
+    "modela", out_dir=r"customers/CustomerA/raw/models/ModelA")
 # results: {filename: {"ok": bool, "saved_path": str|None, "error": str|None}}
 ```
 
@@ -246,9 +264,13 @@ step is needed unless SSO is enabled. It prints a per-grid ✅/✗ summary and a
 
 ### Adding a new model
 
-1. Add `<PREFIX>_MODEL_ID=<guid>` to `.env` (workspace + `CUSTOMER_ID` are shared).
+1. Add `<PREFIX>_MODEL_ID=<guid>` to `.env`. A workspace variable and a
+   `customer_id` can be reused **only** by models in the same customer's
+   tenant and workspace — a second customer has its own tenant GUID, its own
+   workspaces, and possibly its own Anaplan shard, so nothing here is global.
 2. Mirror the example entry in `models.py` with `customer_id`, `workspace_id`,
-   `model_id`, then call `python tools/scrape_model_data.py <prefix> --name "<Model Name>" --ui-only`
+   `model_id`, then call
+   `python tools/scrape_model_data.py <prefix> --out "customers/<Customer>/raw/models/<Model>" --ui-only`
    (or `tools/scrape_model_data.py`, which shares the same shortcut).
 
 (Raw model-id GUIDs are rejected on purpose — a bare id has no reliable way to infer

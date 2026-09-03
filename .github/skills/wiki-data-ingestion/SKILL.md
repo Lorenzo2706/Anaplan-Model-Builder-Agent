@@ -104,15 +104,21 @@ to Phase 1 with the provided paths.
 1. **Ask which model** if not already stated: *"Which model?"* Don't assume any particular
    model — this vault may have any number of models ingested, or none yet.
 
-2. **Check whether it's already ingested** — does `wiki/models/<Model>/` and/or
-   `raw/models/<Model>/` exist? Do this check yourself; don't ask the user. It decides
+2. **Check whether it's already ingested** — does `<CUSTOMER_ROOT>/wiki/models/<Model>/`
+   and/or `<CUSTOMER_ROOT>/raw/models/<Model>/` exist? Do this check yourself; don't ask
+   the user. It decides
    first-time (Phase 3B) vs incremental-delta (Phase 3C) later. If the folder name doesn't
    already exist, confirm the exact display name with the user before creating it — match
-   whatever short-code convention this vault's existing model folders already use (check
-   `raw/models/` and `wiki/models/`), not a full descriptive name.
+   whatever short-code convention this customer's existing model folders already use (check
+   `<CUSTOMER_ROOT>/raw/models/` and `<CUSTOMER_ROOT>/wiki/models/`), not a full
+   descriptive name.
 
 3. **Resolve a scraper shortcut.** Check `tools/models.py`'s `MODELS` dict for a key whose
    entry has `customer_id`, `workspace_id`, and `model_id` all present for this model.
+   Verify the entry's `customer_id` is the tenant of the customer resolved in Phase 0.5 —
+   shortcut keys are a flat namespace across every customer, so a similarly-named entry
+   can belong to a different tenant, and scraping the wrong one writes another customer's
+   model into this customer's folder.
    - **Shortcut exists** → note the key and the model's exact folder name, go to Phase 1B.
    - **No shortcut yet** (expected for any model not already registered — `tools/models.py`
      ships with an empty `MODELS` dict plus one commented-out example) → run:
@@ -140,7 +146,7 @@ archive copies of raw CSVs ([[feedback_no_dated_raw_copies]]; this applies to th
 too). That means the "before" state must be captured before the scraper runs, or it's gone by
 the time you want to diff.
 
-1. If `raw/models/<Model Name>/` already exists, copy only the files whose names are in the
+1. If `<CUSTOMER_ROOT>/raw/models/<Model Name>/` already exists, copy only the files whose names are in the
    scraper's fixed target set for the mode you're about to run — 7 files by default, 15 with
    `--full` (see `docs/SCRAPE_MODEL_DATA.md` → "How the three paths work" for exact names) —
    into a temp folder under the session's scratchpad directory. This is ephemeral diff input
@@ -153,18 +159,25 @@ the time you want to diff.
 ## Phase 2B — Run the scraper
 
 ```powershell
-python tools/scrape_model_data.py <shortcut> --name "<exact existing folder name>"
+python tools/scrape_model_data.py <shortcut> --out "<CUSTOMER_ROOT>/raw/models/<exact existing folder name>"
 ```
 
-Always pass `--name` set to the folder name already used under `raw/models/`/`wiki/models/` —
-a shortcut's own display name in `models.py` can differ from the wiki's folder name (e.g. a
-shortcut named `"ModelA"` might correspond to a wiki folder called `"ModelA 2.0"`). Getting this
-wrong creates a second, wrong-named sibling folder instead of updating the existing one.
+Always pass `--out` set to the model's existing folder under
+`<CUSTOMER_ROOT>/raw/models/`. Do not rely on the script's default output folder: it is the
+pre-multi-customer `<repo>/raw/models/<name>`, which is not where this vault keeps model
+CSVs, and omitting `--out` creates an empty folder at the repo root instead of refreshing
+the model.
+
+`--name` is a display name for the script's console output, not a folder selector — a
+shortcut's display name in `models.py` can differ from the vault's folder name (e.g. a
+shortcut named `"ModelA"` might correspond to a folder called `"ModelA 2.0"`). Pass it only
+if you want the log to read a particular way; getting the **`--out`** path wrong is what
+creates a second, wrong-named sibling folder instead of updating the existing one.
 
 Read the script's own summary output — a ✅/✗ (or `ok`/`--`) line per target file plus a
 produced-file count (7 or 15 depending on mode):
 - **All targets succeeded** → every file in that mode's target set under
-  `raw/models/<Model Name>/` is now current.
+  `<CUSTOMER_ROOT>/raw/models/<Model Name>/` is now current.
 - **Some failed** → the failed targets' prior files (if any) are left untouched, not deleted.
   Treat those specific files as still reflecting their pre-scrape state, ingest the deltas for
   whatever did succeed, and say explicitly in the Phase 4 summary which targets didn't refresh

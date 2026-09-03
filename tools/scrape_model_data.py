@@ -98,6 +98,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -158,6 +159,34 @@ EXPORT_TARGETS = [
     ("Users", "Roles -> Lists", "Roles Lists.csv"),
     ("Users", "Roles -> Actions", "Roles Actions.csv"),
 ]
+
+
+# Anaplan app shards follow one uniform host pattern, so the URL is DERIVED
+# rather than looked up — onboarding a customer on a new shard must not require
+# a code edit. KNOWN_SHARDS is only a hint list for error messages (and, in
+# Pass 2, the interactive wizard's menu); it is deliberately NOT a gate, so a
+# shard Anaplan adds tomorrow works today.
+KNOWN_SHARDS = ("eu1a", "eu2a", "eu3", "eu4", "us1a", "us2a", "ca1a", "ap1a")
+
+_SHARD_RE = re.compile(r"^[a-z]{2}\d{1,2}[a-z]?$")
+
+
+def app_url_for_shard(shard):
+    """Return the app-shard base URL for `shard` (e.g. 'eu3').
+
+    Raises ValueError on anything that is not a bare shard token. There is
+    deliberately NO default: the previous `.get(env, ANAPLAN_URLS["eu2a"])`
+    meant a typo'd or missing shard logged into Stedin's tenant and exported
+    someone else's model into the requested folder.
+    """
+    token = (shard or "").strip().lower()
+    if not _SHARD_RE.match(token):
+        raise ValueError(
+            f"{shard!r} is not an Anaplan shard token (expected e.g. 'eu2a', "
+            f"'eu3'; known: {', '.join(KNOWN_SHARDS)}). Pass the bare shard, "
+            f"not a URL or hostname."
+        )
+    return f"https://{token}.app.anaplan.com/"
 
 
 # ============================================================================
@@ -360,12 +389,12 @@ def _resolve_model(model, name=None):
     )
 
 
-def _build_config():
-    environment = os.getenv("ANAPLAN_ENVIRONMENT", "eu2a")
-    main_url = scraper_ux.ANAPLAN_URLS.get(environment, scraper_ux.ANAPLAN_URLS["eu2a"])
+def _build_config(shard):
+    """Browser/login config for one shard. `shard` is REQUIRED and comes from
+    the resolved model entry — never from a global env var."""
     use_sso = os.getenv("ANAPLAN_USE_SSO", "false").strip().lower() in ("1", "true", "yes")
     return {
-        "main_url": main_url,
+        "main_url": app_url_for_shard(shard),
         "username": os.getenv("ANAPLAN_USERNAME", ""),
         "password": os.getenv("ANAPLAN_PASSWORD", ""),
         "use_basic_auth": not use_sso,
@@ -378,7 +407,8 @@ def list_available_models():
     Log in and fetch every model visible to this account via the live Anaplan
     API, independent of models.MODELS shortcuts.
     """
-    config = _build_config()
+    # bridge: Task 3 replaces this with a real `shard` parameter.
+    config = _build_config(os.getenv("ANAPLAN_ENVIRONMENT", "eu2a"))
     download_dir = tempfile.mkdtemp(prefix="anaplan_list_models_")
     browser = None
     try:
@@ -433,7 +463,8 @@ def download_model_exports(model, out_dir=None, headless_download_dir=None, name
     download_dir = headless_download_dir or tempfile.mkdtemp(prefix="anaplan_scrape_")
     own_download_dir = headless_download_dir is None
 
-    config = _build_config()
+    # bridge: Task 4 replaces this with the resolved model entry's own shard.
+    config = _build_config(os.getenv("ANAPLAN_ENVIRONMENT", "eu2a"))
     base = config["main_url"].rstrip("/")
     settings_url = (
         f"{base}/a/modeling/customers/{customer_id}/workspaces/{workspace_id}"
@@ -855,7 +886,8 @@ def download_model_exports_api(model, out_dir=None, name=None, rest_only=False):
     if out_dir is None:
         out_dir = os.path.join(REPO_ROOT, "raw", "models", model_name)
     os.makedirs(out_dir, exist_ok=True)
-    config = _build_config()
+    # bridge: Task 4 replaces this with the resolved model entry's own shard.
+    config = _build_config(os.getenv("ANAPLAN_ENVIRONMENT", "eu2a"))
 
     base = config["main_url"].rstrip("/")
     settings_url = (f"{base}/a/modeling/customers/{customer_id}/workspaces/"
@@ -1091,7 +1123,8 @@ def download_model_exports_full(model, out_dir=None, name=None):
     if out_dir is None:
         out_dir = os.path.join(REPO_ROOT, "raw", "models", model_name)
     os.makedirs(out_dir, exist_ok=True)
-    config = _build_config()
+    # bridge: Task 4 replaces this with the resolved model entry's own shard.
+    config = _build_config(os.getenv("ANAPLAN_ENVIRONMENT", "eu2a"))
     base = config["main_url"].rstrip("/")
     settings_url = (f"{base}/a/modeling/customers/{customer_id}/workspaces/"
                     f"{workspace_id}/models/{model_id}/model-settings")

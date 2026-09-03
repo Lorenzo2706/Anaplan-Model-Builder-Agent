@@ -176,8 +176,8 @@ def app_url_for_shard(shard):
 
     Raises ValueError on anything that is not a bare shard token. There is
     deliberately NO default: the previous `.get(env, ANAPLAN_URLS["eu2a"])`
-    meant a typo'd or missing shard logged into Stedin's tenant and exported
-    someone else's model into the requested folder.
+    meant a typo'd or missing shard logged into whichever tenant the default
+    named and exported the wrong model into the requested folder.
     """
     token = (shard or "").strip().lower()
     if not _SHARD_RE.match(token):

@@ -356,37 +356,50 @@ def _export_one_target(browser, download_dir, nav_label, subtab_label, out_filen
         return fail(f"unexpected error: {e}")
 
 
+REQUIRED_ENTRY_KEYS = ("name", "raw_dir", "folder", "shard",
+                       "customer_id", "workspace_id", "model_id")
+
+
 def _resolve_model(model, name=None):
-    """
-    Resolve `model` (a models.MODELS shortcut key, or a raw model_id GUID)
-    into (model_id, model_name, workspace_id, customer_id).
+    """Resolve a models.MODELS shortcut key into a fully merged entry dict.
+
+    Returns a dict (not the old 4-tuple) because an entry now carries the
+    shard, the vault folder and the raw export folder in addition to the three
+    GUIDs — seven fields, four of them opaque GUID strings, is exactly the
+    shape where positional unpacking silently swaps a tenant.
     """
     configured = getattr(models, "MODELS", {})
+    if model not in configured:
+        raise ValueError(
+            f"'{model}' is not a configured shortcut in models.MODELS "
+            f"({sorted(configured)}). Raw model_id lookups need a workspace and "
+            f"shard that cannot be safely inferred; add an entry to models.py "
+            f"with folder, shard, raw_dir, customer_id, workspace_id and "
+            f"model_id, then pass its key here."
+        )
 
-    if model in configured:
-        m = configured[model]
-        model_id = m.get("model_id")
-        workspace_id = m.get("workspace_id")
-        customer_id = m.get("customer_id")
-        model_name = name or m.get("name", model)
-        missing = [k for k, v in (
-            ("model_id", model_id), ("workspace_id", workspace_id),
-            ("customer_id", customer_id),
-        ) if not v]
-        if missing:
-            raise ValueError(
-                f"models.MODELS['{model}'] is missing {missing}; check your .env "
-                f"entries for this shortcut."
-            )
-        return model_id, model_name, workspace_id, customer_id
+    entry = dict(configured[model])
+    missing = [k for k in REQUIRED_ENTRY_KEYS if not entry.get(k)]
+    if missing:
+        raise ValueError(
+            f"models.MODELS['{model}'] is missing {missing}. Every entry must "
+            f"declare its own shard, folder and raw_dir — there is no global "
+            f"default for any of them."
+        )
 
-    raise ValueError(
-        f"'{model}' is not a configured shortcut in models.MODELS "
-        f"({list(configured.keys())}). Raw model_id lookups need a workspace "
-        f"ID that cannot be safely inferred; please add a shortcut entry to "
-        f"models.py with customer_id, workspace_id, and model_id, then pass "
-        f"its key here."
-    )
+    app_url_for_shard(entry["shard"])          # fail here, not mid-login
+    entry["display_name"] = name or entry["name"]
+    return entry
+
+
+def settings_url(entry):
+    """The model-settings URL for a resolved entry. Single definition: this
+    string was previously duplicated in three functions, so every shard or
+    path change had to be applied three times and kept in sync."""
+    base = app_url_for_shard(entry["shard"]).rstrip("/")
+    return (f"{base}/a/modeling/customers/{entry['customer_id']}"
+            f"/workspaces/{entry['workspace_id']}/models/{entry['model_id']}"
+            f"/model-settings")
 
 
 def _build_config(shard):
@@ -452,7 +465,9 @@ def download_model_exports(model, out_dir=None, headless_download_dir=None, name
     """
     Pure-Selenium fallback: export all 13 model-settings grids through the UI.
     """
-    model_id, model_name, workspace_id, customer_id = _resolve_model(model, name=name)
+    entry = _resolve_model(model, name=name)
+    model_id = entry["model_id"]
+    model_name = entry["display_name"]
 
     if out_dir is None:
         out_dir = os.path.join(REPO_ROOT, "raw", "models", model_name)
@@ -461,13 +476,8 @@ def download_model_exports(model, out_dir=None, headless_download_dir=None, name
     download_dir = headless_download_dir or tempfile.mkdtemp(prefix="anaplan_scrape_")
     own_download_dir = headless_download_dir is None
 
-    # bridge: Task 4 replaces this with the resolved model entry's own shard.
-    config = _build_config(os.getenv("ANAPLAN_ENVIRONMENT", "eu2a"))
-    base = config["main_url"].rstrip("/")
-    settings_url = (
-        f"{base}/a/modeling/customers/{customer_id}/workspaces/{workspace_id}"
-        f"/models/{model_id}/model-settings"
-    )
+    config = _build_config(entry["shard"])
+    url = settings_url(entry)
 
     results = {}
     browser = None
@@ -476,7 +486,7 @@ def download_model_exports(model, out_dir=None, headless_download_dir=None, name
         print(f"\n{'=' * 70}")
         print(f"  Anaplan pure-UI model export - {model_name}")
         print(f"{'=' * 70}")
-        print(f"  Settings URL : {settings_url}")
+        print(f"  Settings URL : {url}")
         print(f"  Output dir   : {out_dir}\n")
 
         browser = scraper_ux._create_browser(download_dir)
@@ -485,7 +495,7 @@ def download_model_exports(model, out_dir=None, headless_download_dir=None, name
         scraper_ux.login(browser, config)
 
         print("  Opening model-settings shell...")
-        browser.get(settings_url)
+        browser.get(url)
 
         if not enter_shell(browser, timeout=30):
             raise RuntimeError(
@@ -880,16 +890,15 @@ def download_model_exports_api(model, out_dir=None, name=None, rest_only=False):
 
     Returns dict keyed by output filename -> {"ok", "rows", "path", "error"}.
     """
-    model_id, model_name, workspace_id, customer_id = _resolve_model(model, name=name)
+    entry = _resolve_model(model, name=name)
+    model_id = entry["model_id"]
+    model_name = entry["display_name"]
     if out_dir is None:
         out_dir = os.path.join(REPO_ROOT, "raw", "models", model_name)
     os.makedirs(out_dir, exist_ok=True)
-    # bridge: Task 4 replaces this with the resolved model entry's own shard.
-    config = _build_config(os.getenv("ANAPLAN_ENVIRONMENT", "eu2a"))
+    config = _build_config(entry["shard"])
 
-    base = config["main_url"].rstrip("/")
-    settings_url = (f"{base}/a/modeling/customers/{customer_id}/workspaces/"
-                    f"{workspace_id}/models/{model_id}/model-settings")
+    url = settings_url(entry)
 
     print(f"\n{'=' * 70}")
     print(f"  Anaplan API model export — {model_name}")
@@ -919,7 +928,7 @@ def download_model_exports_api(model, out_dir=None, name=None, rest_only=False):
         print(f"\n  → Exporting {len(UI_ONLY_TARGETS)} grid(s) via the model-"
               f"settings UI (REST too sparse): "
               f"{', '.join(fn for _n, _s, fn in UI_ONLY_TARGETS)}")
-        _export_targets_via_ui(browser, settings_url, download_dir, out_dir,
+        _export_targets_via_ui(browser, url, download_dir, out_dir,
                                UI_ONLY_TARGETS, results)
     finally:
         if browser is not None:
@@ -1117,15 +1126,16 @@ def download_model_exports_full(model, out_dir=None, name=None):
     Any legacy grid that fails the classic-API path falls back to the
     local UI export path for that one grid, so coverage never regresses.
     """
-    model_id, model_name, workspace_id, customer_id = _resolve_model(model, name=name)
+    entry = _resolve_model(model, name=name)
+    model_id = entry["model_id"]
+    model_name = entry["display_name"]
+    workspace_id = entry["workspace_id"]
     if out_dir is None:
         out_dir = os.path.join(REPO_ROOT, "raw", "models", model_name)
     os.makedirs(out_dir, exist_ok=True)
-    # bridge: Task 4 replaces this with the resolved model entry's own shard.
-    config = _build_config(os.getenv("ANAPLAN_ENVIRONMENT", "eu2a"))
+    config = _build_config(entry["shard"])
     base = config["main_url"].rstrip("/")
-    settings_url = (f"{base}/a/modeling/customers/{customer_id}/workspaces/"
-                    f"{workspace_id}/models/{model_id}/model-settings")
+    url = settings_url(entry)
 
     print(f"\n{'=' * 70}")
     print(f"  Anaplan FULL model export (API-driven) — {model_name}")
@@ -1150,7 +1160,7 @@ def download_model_exports_full(model, out_dir=None, name=None):
         # ── Phase 2: legacy grids over the classic core-webapp API (no UI) ──────
         print(f"\n  → Exporting {len(_LEGACY_TEMPLATES)} legacy grids over the "
               f"classic core-webapp API...")
-        browser.get(settings_url)
+        browser.get(url)
         if not enter_shell(browser, timeout=30):
             for fn in _LEGACY_TEMPLATES:
                 results[fn] = {"ok": False, "rows": None, "path": None,
@@ -1164,14 +1174,14 @@ def download_model_exports_full(model, out_dir=None, name=None):
         if failed:
             print(f"\n  → UI-export fallback for {len(failed)} legacy grid(s): "
                   f"{', '.join(fn for _n, _s, fn in failed)}")
-            _export_targets_via_ui(browser, settings_url, download_dir, out_dir,
+            _export_targets_via_ui(browser, url, download_dir, out_dir,
                                    failed, results)
 
         # ── Phase 3: Modules + General Lists via the proven Selenium UI export ──
         print(f"\n  → Exporting {len(UI_ONLY_TARGETS)} grid(s) via the model-"
               f"settings UI (REST too sparse): "
               f"{', '.join(fn for _n, _s, fn in UI_ONLY_TARGETS)}")
-        _export_targets_via_ui(browser, settings_url, download_dir, out_dir,
+        _export_targets_via_ui(browser, url, download_dir, out_dir,
                                UI_ONLY_TARGETS, results)
     finally:
         if browser is not None:

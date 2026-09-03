@@ -58,3 +58,56 @@ class TestListModelsCli:
             smd._main(["--list-models", "--shard", "eu3"])
         assert exc.value.code == 0
         assert seen["shard"] == "eu3"
+
+
+FAKE_ENTRY = {
+    "name": "ModelA", "raw_dir": "ModelA 2.0", "folder": "CustomerA",
+    "shard": "eu3", "customer_id": "C1", "workspace_id": "W1", "model_id": "M1",
+}
+
+
+class TestResolveModel:
+    def test_returns_merged_entry_with_all_required_keys(self, monkeypatch):
+        monkeypatch.setattr(smd.models, "MODELS", {"a": dict(FAKE_ENTRY)})
+        entry = smd._resolve_model("a")
+        for key in smd.REQUIRED_ENTRY_KEYS:
+            assert entry[key], f"{key} missing from resolved entry"
+        assert entry["shard"] == "eu3"
+
+    def test_name_override_sets_display_name_only(self, monkeypatch):
+        """--name is cosmetic: it must NOT change raw_dir, which selects the
+        output folder."""
+        monkeypatch.setattr(smd.models, "MODELS", {"a": dict(FAKE_ENTRY)})
+        entry = smd._resolve_model("a", name="Something Else")
+        assert entry["display_name"] == "Something Else"
+        assert entry["raw_dir"] == "ModelA 2.0"
+
+    @pytest.mark.parametrize("missing", ["raw_dir", "folder", "shard",
+                                         "customer_id", "workspace_id", "model_id"])
+    def test_missing_key_raises_naming_it(self, monkeypatch, missing):
+        broken = dict(FAKE_ENTRY)
+        del broken[missing]
+        monkeypatch.setattr(smd.models, "MODELS", {"a": broken})
+        with pytest.raises(ValueError) as exc:
+            smd._resolve_model("a")
+        assert missing in str(exc.value)
+
+    def test_bad_shard_in_entry_raises(self, monkeypatch):
+        broken = dict(FAKE_ENTRY, shard="https://eu3.app.anaplan.com/")
+        monkeypatch.setattr(smd.models, "MODELS", {"a": broken})
+        with pytest.raises(ValueError):
+            smd._resolve_model("a")
+
+    def test_unknown_shortcut_lists_valid_ones(self, monkeypatch):
+        monkeypatch.setattr(smd.models, "MODELS", {"a": dict(FAKE_ENTRY)})
+        with pytest.raises(ValueError) as exc:
+            smd._resolve_model("nope")
+        assert "'a'" in str(exc.value) or "a" in str(exc.value)
+
+
+class TestSettingsUrl:
+    def test_built_from_entry_shard_and_guids(self):
+        assert smd.settings_url(FAKE_ENTRY) == (
+            "https://eu3.app.anaplan.com/a/modeling/customers/C1/workspaces/W1"
+            "/models/M1/model-settings"
+        )

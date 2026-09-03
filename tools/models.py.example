@@ -13,6 +13,10 @@ from os import getenv
 #     # match the folder: the `umd` shortcut points at raw/models/AAC (UMD is a
 #     # cost-category acronym, not a model name).
 #     "raw_dir": "ModelA",
+#     # Vault folder under customers/ this model belongs to.
+#     "folder": "CustomerA",
+#     # Bare Anaplan app shard token this tenant logs into (e.g. "eu2a", "eu3").
+#     "shard": "eu2a",
 #     "customer_id": getenv("CUSTOMER_ID"),
 #     "workspace_id": getenv("MODELA_WORKSPACE"),
 #     "model_id": getenv("MODELA_MODEL_ID"),

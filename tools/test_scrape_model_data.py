@@ -61,6 +61,30 @@ class TestListModelsCli:
         assert exc.value.code == 0
         assert seen["shard"] == "eu3"
 
+    def test_shard_without_list_models_is_rejected(self, capsys, monkeypatch):
+        """--shard only means something for --list-models (which has no
+        registry entry to infer one from). Passing it with a model shortcut
+        must not be silently ignored — that's exactly the silent-divergence
+        failure mode this branch exists to eliminate."""
+        monkeypatch.setattr(smd.models, "MODELS", {"a": dict(FAKE_ENTRY)})
+        with pytest.raises(SystemExit) as exc:
+            smd._main(["a", "--shard", "eu9", "--rest-only"])
+        assert exc.value.code != 0
+        assert "--shard" in capsys.readouterr().err
+
+    def test_shard_without_list_models_rejected_before_any_work(self, monkeypatch):
+        """The rejection above must happen before the model resolves or any
+        network/browser call is attempted."""
+        monkeypatch.setattr(smd.models, "MODELS", {"a": dict(FAKE_ENTRY)})
+        monkeypatch.setattr(smd, "download_model_exports_api",
+                            lambda *a, **k: pytest.fail("must not run"))
+        monkeypatch.setattr(smd, "download_model_exports_full",
+                            lambda *a, **k: pytest.fail("must not run"))
+        monkeypatch.setattr(smd, "download_model_exports",
+                            lambda *a, **k: pytest.fail("must not run"))
+        with pytest.raises(SystemExit):
+            smd._main(["a", "--shard", "eu9"])
+
 
 FAKE_ENTRY = {
     "name": "ModelA", "raw_dir": "ModelA 2.0", "folder": "CustomerA",
@@ -124,6 +148,8 @@ class TestCoreWebappOrigin:
         "", None, "http://eu4.app.anaplan.com",          # not https
         "https://eu4.app.anaplan.com.evil.test",         # suffix attack
         "https://evil.test", "https://app.anaplan.com",
+        "https://eu4.app.anaplan.com\n",                 # trailing newline: $ would
+                                                          # accept this, \Z must not
     ])
     def test_rejects_anything_else(self, bad):
         with pytest.raises(RuntimeError):
@@ -161,6 +187,24 @@ class TestOutDir:
                                   repo_root=str(tmp_path))
         assert os.path.isdir(got)
 
+    def test_missing_folder_error_names_the_shortcut(self, tmp_path, monkeypatch):
+        """The ValueError used to print the literal models.MODELS['...'], which
+        can't be searched for in models.py. Once an entry has gone through
+        _resolve_model it carries the actual shortcut key, and the error
+        should name it."""
+        monkeypatch.setattr(smd.models, "MODELS", {"my-shortcut": dict(FAKE_ENTRY)})
+        entry = smd._resolve_model("my-shortcut")
+        with pytest.raises(ValueError) as exc:
+            smd.resolve_out_dir(entry, out_dir=None, repo_root=str(tmp_path))
+        assert "my-shortcut" in str(exc.value)
+
+    def test_missing_folder_error_tolerates_entry_without_shortcut(self, tmp_path):
+        """resolve_out_dir is also called directly in tests/library use with a
+        plain dict that never went through _resolve_model — must not KeyError
+        just because 'shortcut' is absent."""
+        with pytest.raises(ValueError):
+            smd.resolve_out_dir(FAKE_ENTRY, out_dir=None, repo_root=str(tmp_path))
+
     def test_name_override_does_not_change_out_dir(self, tmp_path, monkeypatch):
         target = tmp_path / "customers" / "CustomerA" / "raw" / "models" / "ModelA 2.0"
         target.mkdir(parents=True)
@@ -168,3 +212,125 @@ class TestOutDir:
         entry = smd._resolve_model("a", name="Wrong Folder Name")
         got = smd.resolve_out_dir(entry, out_dir=None, repo_root=str(tmp_path))
         assert os.path.normpath(got) == os.path.normpath(str(target))
+
+
+class _FakeWebDriverException(Exception):
+    """Stand-in for selenium.common.exceptions.WebDriverException /
+    TimeoutException — the point of these tests is that it is NOT a
+    RuntimeError subclass, so a handler that only catches RuntimeError would
+    let it propagate."""
+
+
+class TestPullLegacyViaApiOriginDiscovery:
+    """Regression coverage for I2: before this fix, only RuntimeError was
+    caught around core-webapp origin discovery in _pull_legacy_via_api. A real
+    Selenium WebDriverException/TimeoutException (e.g. a detached frame or a
+    script timeout) is not a RuntimeError, so it used to propagate out of
+    download_model_exports_full entirely, aborting Phase 2b's UI fallback and
+    Phase 3 (Modules + General Lists) for the whole --full run. The fix
+    broadens the handler to `except Exception` and still records a per-grid
+    error, letting the caller's fallback logic run."""
+
+    def test_non_runtimeerror_from_execute_script_is_caught_per_grid(self, monkeypatch):
+        monkeypatch.setattr(smd, "enter_grid", lambda browser, timeout=20: True)
+
+        class FakeBrowser:
+            def execute_script(self, script):
+                raise _FakeWebDriverException("script timed out")
+
+        results = {}
+        smd._pull_legacy_via_api(FakeBrowser(), "M1", "W1", "/out", results)
+
+        assert set(results) == set(smd._LEGACY_TEMPLATES)
+        for fn, r in results.items():
+            assert r["ok"] is False
+            assert "script timed out" in r["error"]
+
+    def test_runtimeerror_from_bad_origin_is_still_caught(self, monkeypatch):
+        """The broadened `except Exception` must still catch the pre-existing
+        RuntimeError case (a malformed origin from validate_core_origin, now
+        reached via _core_webapp_urls) — not just the new exception types."""
+        monkeypatch.setattr(smd, "enter_grid", lambda browser, timeout=20: True)
+
+        class FakeBrowser:
+            def execute_script(self, script):
+                return "https://evil.test"
+
+        results = {}
+        smd._pull_legacy_via_api(FakeBrowser(), "M1", "W1", "/out", results)
+
+        assert set(results) == set(smd._LEGACY_TEMPLATES)
+        for fn, r in results.items():
+            assert r["ok"] is False
+            assert "does not look like an Anaplan app shard" in r["error"]
+
+    def test_no_enter_grid_iframe_still_reports_all_grids(self, monkeypatch):
+        monkeypatch.setattr(smd, "enter_grid", lambda browser, timeout=20: False)
+        results = {}
+        smd._pull_legacy_via_api(object(), "M1", "W1", "/out", results)
+        assert set(results) == set(smd._LEGACY_TEMPLATES)
+        for r in results.values():
+            assert r["ok"] is False
+            assert "core-webapp iframe" in r["error"]
+
+
+class TestDownloadModelExportsApiRestOnlySeam:
+    """Browser-free seam test for the download_model_exports_api entry point
+    (the branch's central claim — output folder derived from the registry
+    entry — was previously only tested at the resolve_out_dir helper level,
+    never through the real CLI/library entry point, which is why C3's stale
+    docs went unnoticed). Monkeypatches only the network/browser seams
+    (_api_session, _pull_api_files) plus default_out_dir (so the derived path
+    lands under tmp_path instead of the real repo), and drives everything else
+    — _resolve_model, resolve_out_dir's own existence check — for real."""
+
+    def _patch_default_out_dir_under(self, monkeypatch, tmp_path):
+        def fake_default_out_dir(entry, repo_root=None):
+            path = os.path.join(str(tmp_path), "customers", entry["folder"],
+                                "raw", "models", entry["raw_dir"])
+            os.makedirs(path, exist_ok=True)
+            return path
+        monkeypatch.setattr(smd, "default_out_dir", fake_default_out_dir)
+
+    def test_out_dir_comes_from_entry_and_name_does_not_move_it(self, tmp_path, monkeypatch):
+        self._patch_default_out_dir_under(monkeypatch, tmp_path)
+        monkeypatch.setattr(smd.models, "MODELS", {"a": dict(FAKE_ENTRY)})
+        monkeypatch.setattr(smd, "_api_session", lambda: object())
+
+        pull_calls = []
+
+        def fake_pull(sess, base, model_id, out_dir, results):
+            pull_calls.append((model_id, out_dir))
+            results["Line Items.csv"] = {"ok": True, "rows": 3, "path": None, "error": None}
+
+        monkeypatch.setattr(smd, "_pull_api_files", fake_pull)
+
+        results = smd.download_model_exports_api(
+            "a", name="A Totally Different Display Name", rest_only=True)
+
+        expected_dir = os.path.join(str(tmp_path), "customers", "CustomerA",
+                                    "raw", "models", "ModelA 2.0")
+        assert len(pull_calls) == 1
+        seen_model_id, seen_out_dir = pull_calls[0]
+        assert seen_model_id == "M1"
+        assert os.path.normpath(seen_out_dir) == os.path.normpath(expected_dir)
+        assert results["Line Items.csv"]["ok"] is True
+
+    def test_bad_shard_aborts_before_any_session_or_file(self, tmp_path, monkeypatch):
+        self._patch_default_out_dir_under(monkeypatch, tmp_path)
+        broken = dict(FAKE_ENTRY, shard="not-a-shard")
+        monkeypatch.setattr(smd.models, "MODELS", {"a": broken})
+
+        called = {"session": False, "pull": False}
+        monkeypatch.setattr(
+            smd, "_api_session",
+            lambda: called.__setitem__("session", True) or object())
+        monkeypatch.setattr(
+            smd, "_pull_api_files",
+            lambda *a, **k: called.__setitem__("pull", True))
+
+        with pytest.raises(ValueError):
+            smd.download_model_exports_api("a", rest_only=True)
+
+        assert called == {"session": False, "pull": False}
+        assert list(tmp_path.rglob("*.csv")) == []

@@ -84,14 +84,22 @@ blank. `wiki-data-ingestion` parses everything identically.
 
 Usage
 -----
-    python tools/scrape_model_data.py modela --name "ModelA"             # 7 fast files
-    python tools/scrape_model_data.py modela --name "ModelA" --full      # all 15 files
-    python tools/scrape_model_data.py modela --name "ModelA" --ui-only   # pure UI fallback
+For a model already registered in `models.py`, the output folder is derived
+automatically from that entry's `folder` + `raw_dir` — omit `--out`, that is
+the safe default. `--name` only relabels console output, it never selects a
+folder. Pass `--out` only for a scratch export (e.g. a temp dir to diff before
+promoting into the vault) or when the model has no registry entry yet.
+
+    python tools/scrape_model_data.py modela                              # 7 fast files
+    python tools/scrape_model_data.py modela --full                       # all 15 files
+    python tools/scrape_model_data.py modela --ui-only                    # pure UI fallback
+    python tools/scrape_model_data.py modela --out "C:/temp/probe"        # scratch export
 
 As a library:
 
     from scrape_model_data import download_model_exports_api, download_model_exports_full
-    download_model_exports_full("modela", out_dir=r"raw/models/ModelA")
+    download_model_exports_full("modela")                        # default: registry-derived out_dir
+    download_model_exports_full("modela", out_dir=r"C:/temp/probe")  # scratch export
 """
 
 import argparse
@@ -389,6 +397,7 @@ def _resolve_model(model, name=None):
 
     app_url_for_shard(entry["shard"])          # fail here, not mid-login
     entry["display_name"] = name or entry["name"]
+    entry["shortcut"] = model                  # derived, not a required key — for error messages
     return entry
 
 
@@ -405,7 +414,7 @@ def settings_url(entry):
 def default_out_dir(entry, repo_root=REPO_ROOT):
     """Where this model's CSVs live in the vault. Derived from the entry's
     folder + raw_dir, NEVER from the display name: the two legitimately differ
-    (a shortcut named 'UMD' exports into a folder called 'AAC')."""
+    (a shortcut named 'modela' exports into a folder called 'ModelA 2.0')."""
     return os.path.join(repo_root, "customers", entry["folder"],
                         "raw", "models", entry["raw_dir"])
 
@@ -425,9 +434,10 @@ def resolve_out_dir(entry, out_dir=None, repo_root=REPO_ROOT):
 
     path = default_out_dir(entry, repo_root)
     if not os.path.isdir(path):
+        shortcut = entry.get("shortcut", "...")
         raise ValueError(
             f"export folder {path!r} does not exist. Check "
-            f"models.MODELS['...']['raw_dir'] ({entry['raw_dir']!r}) and "
+            f"models.MODELS[{shortcut!r}]['raw_dir'] ({entry['raw_dir']!r}) and "
             f"['folder'] ({entry['folder']!r}) against the vault, or pass "
             f"--out explicitly for a scratch export."
         )
@@ -498,7 +508,6 @@ def download_model_exports(model, out_dir=None, headless_download_dir=None, name
     Pure-Selenium fallback: export all 13 model-settings grids through the UI.
     """
     entry = _resolve_model(model, name=name)
-    model_id = entry["model_id"]
     model_name = entry["display_name"]
 
     out_dir = resolve_out_dir(entry, out_dir)
@@ -1014,7 +1023,11 @@ _LEGACY_TARGETS = [t for t in EXPORT_TARGETS if t[2] in set(API_UNAVAILABLE)]
 # the registry entry — we ask the iframe itself via window.location.origin and
 # validate the answer (validate_core_origin) before building URLs from it.
 
-_CORE_ORIGIN_RE = re.compile(r"^https://[a-z]{2}\d{1,2}[a-z]?\.app\.anaplan\.com$")
+# Grammar lives once in _SHARD_RE; reuse its inner pattern here so the two
+# validators can never drift apart. \Z (not $) so a trailing newline is
+# rejected too — $ also matches just before a final '\n', which is undesirable
+# in a validator that gates a URL we POST model data to.
+_CORE_ORIGIN_RE = re.compile(rf"^https://{_SHARD_RE.pattern[1:-1]}\.app\.anaplan\.com\Z")
 
 
 def validate_core_origin(origin):
@@ -1135,15 +1148,19 @@ def _pull_legacy_via_api(browser, model_id, ws, out_dir, results):
     # The classic engine lives on its own shard, unrelated to the tenant's
     # app shard (a tenant served from eu2a can have its engine on eu4), so it
     # cannot be derived from the entry. We are already inside that iframe
-    # here, so ask it where it is.
+    # here, so ask it where it is. browser.execute_script() can raise Selenium's
+    # WebDriverException/TimeoutException (e.g. a detached frame or a script
+    # timeout) in addition to _core_webapp_urls's own RuntimeError from
+    # validate_core_origin — catch broadly so neither aborts the whole --full
+    # run (Phase 2b's UI fallback and Phase 3 must still run after this).
     try:
-        origin = validate_core_origin(
-            browser.execute_script("return window.location.origin;"))
-    except RuntimeError as e:
+        origin = browser.execute_script("return window.location.origin;")
+        jsonrpc, servlet = _core_webapp_urls(origin, ws)   # validates origin internally
+    except Exception as e:
         for fn in _LEGACY_TEMPLATES:
-            results[fn] = {"ok": False, "rows": None, "path": None, "error": str(e)}
+            results[fn] = {"ok": False, "rows": None, "path": None,
+                           "error": f"core-webapp origin discovery failed: {e}"}
         return
-    jsonrpc, servlet = _core_webapp_urls(origin, ws)
     print(f"  [CLS] core-webapp origin: {origin}")
 
     mdsn, csid = _capture_session_params(browser)
@@ -1312,6 +1329,10 @@ def _main(argv=None):
 
     if not args.model:
         p.error("model is required unless --list-models is passed")
+
+    if args.shard and not args.list_models:
+        p.error("--shard applies only to --list-models; a model's shard comes "
+                "from its registry entry")
 
     if args.ui_only:
         results = download_model_exports(args.model, out_dir=args.out, name=args.name)

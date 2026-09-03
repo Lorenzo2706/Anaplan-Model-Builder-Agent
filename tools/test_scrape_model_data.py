@@ -115,6 +115,27 @@ class TestSettingsUrl:
         )
 
 
+class TestCoreWebappOrigin:
+    def test_accepts_an_anaplan_app_origin(self):
+        assert smd.validate_core_origin("https://eu4.app.anaplan.com") == \
+            "https://eu4.app.anaplan.com"
+
+    @pytest.mark.parametrize("bad", [
+        "", None, "http://eu4.app.anaplan.com",          # not https
+        "https://eu4.app.anaplan.com.evil.test",         # suffix attack
+        "https://evil.test", "https://app.anaplan.com",
+    ])
+    def test_rejects_anything_else(self, bad):
+        with pytest.raises(RuntimeError):
+            smd.validate_core_origin(bad)
+
+    def test_builds_jsonrpc_and_servlet_from_origin(self):
+        jsonrpc, servlet = smd._core_webapp_urls("https://eu9.app.anaplan.com", "WS1")
+        assert jsonrpc == "https://eu9.app.anaplan.com/core-webapp-WS1/anaplan/jsonrpc"
+        assert servlet == ("https://eu9.app.anaplan.com/core-webapp-WS1/anaplan/"
+                           "servlet?taskType=export")
+
+
 class TestOutDir:
     def test_default_is_customer_scoped(self):
         got = smd.default_out_dir(FAKE_ENTRY, repo_root="/repo")

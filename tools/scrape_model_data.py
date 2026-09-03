@@ -985,9 +985,10 @@ _LEGACY_TARGETS = [t for t in EXPORT_TARGETS if t[2] in set(API_UNAVAILABLE)]
 #  Legacy-grid export over the classic core-webapp API (jsonrpc + servlet)
 # ══════════════════════════════════════════════════════════════════════════════
 #
-# The 8 legacy grids live in the classic core engine (core-webapp-<ws> on the eu4
-# shard). There is no REST endpoint, but the engine's own HTTP protocol can be
-# driven directly — no Dojo UI clicking — once a browser session exists:
+# The 8 legacy grids live in the classic core engine (core-webapp-<ws> on
+# whichever shard hosts that tenant's classic engine — see the origin-discovery
+# note below). There is no REST endpoint, but the engine's own HTTP protocol can
+# be driven directly — no Dojo UI clicking — once a browser session exists:
 #
 #   1. POST .../anaplan/jsonrpc  {requestType:"VIEW_REQUEST_SET", viewRequests:[
 #        {viewIndex:-1, viewGuid:<new>, viewDefinition:<grid template>, ...}],
@@ -1006,8 +1007,32 @@ _LEGACY_TARGETS = [t for t in EXPORT_TARGETS if t[2] in set(API_UNAVAILABLE)]
 # model. `modelDefinitionSerialNumber` + `clientSessionId` ARE per-session and
 # are scraped from the client's own first jsonrpc call at run time.
 #
-# The fetch() calls run inside the eu4 core-webapp iframe (via execute_async_
-# script) so the browser session cookies + origin are supplied automatically.
+# The fetch() calls run inside the core-webapp iframe (via execute_async_script)
+# so the browser session cookies + origin are supplied automatically. The
+# classic engine's shard is unrelated to the tenant's app shard (a tenant
+# served from eu2a can have its engine on eu4), so it cannot be derived from
+# the registry entry — we ask the iframe itself via window.location.origin and
+# validate the answer (validate_core_origin) before building URLs from it.
+
+_CORE_ORIGIN_RE = re.compile(r"^https://[a-z]{2}\d{1,2}[a-z]?\.app\.anaplan\.com$")
+
+
+def validate_core_origin(origin):
+    """Guard the discovered iframe origin before interpolating it into a URL we
+    POST model data to. Anchored on both ends: a suffix like
+    'https://eu4.app.anaplan.com.evil.test' must not pass."""
+    if not _CORE_ORIGIN_RE.match(origin or ""):
+        raise RuntimeError(
+            f"core-webapp iframe origin {origin!r} does not look like an "
+            f"Anaplan app shard; refusing to POST model data to it."
+        )
+    return origin
+
+
+def _core_webapp_urls(origin, workspace_id):
+    base = f"{validate_core_origin(origin)}/core-webapp-{workspace_id}/anaplan"
+    return f"{base}/jsonrpc", f"{base}/servlet?taskType=export"
+
 
 _LEGACY_TEMPLATES = json.loads(r'''
 {
@@ -1022,7 +1047,7 @@ _LEGACY_TEMPLATES = json.loads(r'''
 }
 ''')
 
-# JS run inside the eu4 iframe: VIEW_REQUEST_SET -> PROGRESS -> servlet, returning
+# JS run inside the core-webapp iframe: VIEW_REQUEST_SET -> PROGRESS -> servlet, returning
 # {vrs_status, viewIndex, taskId, servlet_status, ct, csv} (csv = full text).
 _LEGACY_CHAIN_JS = r"""
 const p = arguments[0], done = arguments[1];
@@ -1074,10 +1099,10 @@ return 'ok';
 
 
 def _capture_session_params(browser):
-    """Inside the eu4 grid iframe, install the jsonrpc hook and nudge the client
-    into issuing a VIEW_REQUEST_SET (by re-opening a nav item), then scrape the
-    per-session modelDefinitionSerialNumber + clientSessionId. Returns (mdsn,
-    csid) or (None, None)."""
+    """Inside the core-webapp grid iframe, install the jsonrpc hook and nudge the
+    client into issuing a VIEW_REQUEST_SET (by re-opening a nav item), then
+    scrape the per-session modelDefinitionSerialNumber + clientSessionId.
+    Returns (mdsn, csid) or (None, None)."""
     browser.execute_script(_SESSION_HOOK_JS)
     # Nudge the classic client to emit a VIEW_REQUEST_SET we can read.
     enter_shell(browser)
@@ -1096,18 +1121,31 @@ def _capture_session_params(browser):
     return None, None
 
 
-def _pull_legacy_via_api(browser, base, model_id, ws, out_dir, results):
+def _pull_legacy_via_api(browser, model_id, ws, out_dir, results):
     """Export the 8 legacy grids over the classic core-webapp API (jsonrpc +
-    servlet), driven by fetch() inside the eu4 iframe — no UI navigation. The
-    browser must already be on the model-settings page (shell entered)."""
-    jsonrpc = f"https://eu4.app.anaplan.com/core-webapp-{ws}/anaplan/jsonrpc"
-    servlet = f"https://eu4.app.anaplan.com/core-webapp-{ws}/anaplan/servlet?taskType=export"
-
+    servlet), driven by fetch() inside the core-webapp iframe — no UI
+    navigation. The browser must already be on the model-settings page (shell
+    entered)."""
     if not enter_grid(browser, 20):
         for fn in _LEGACY_TEMPLATES:
             results[fn] = {"ok": False, "rows": None, "path": None,
                            "error": "could not enter core-webapp iframe"}
         return
+
+    # The classic engine lives on its own shard, unrelated to the tenant's
+    # app shard (a tenant served from eu2a can have its engine on eu4), so it
+    # cannot be derived from the entry. We are already inside that iframe
+    # here, so ask it where it is.
+    try:
+        origin = validate_core_origin(
+            browser.execute_script("return window.location.origin;"))
+    except RuntimeError as e:
+        for fn in _LEGACY_TEMPLATES:
+            results[fn] = {"ok": False, "rows": None, "path": None, "error": str(e)}
+        return
+    jsonrpc, servlet = _core_webapp_urls(origin, ws)
+    print(f"  [CLS] core-webapp origin: {origin}")
+
     mdsn, csid = _capture_session_params(browser)
     if mdsn is None or csid is None:
         for fn in _LEGACY_TEMPLATES:
@@ -1115,7 +1153,7 @@ def _pull_legacy_via_api(browser, base, model_id, ws, out_dir, results):
                            "error": "could not capture session params (mdsn/csid)"}
         return
 
-    enter_grid(browser, 12)  # ensure we're in the eu4 iframe for fetch()
+    enter_grid(browser, 12)  # ensure we're in the core-webapp iframe for fetch()
     for fn, tpl in _LEGACY_TEMPLATES.items():
         params = {"model_id": model_id, "ws": ws, "mdsn": mdsn, "csid": csid,
                   "jsonrpc": jsonrpc, "servlet": servlet,
@@ -1148,7 +1186,8 @@ def download_model_exports_full(model, out_dir=None, name=None):
         no browser involved).
       • Phase 2 — the 8 legacy grids over the classic core-webapp API
         (jsonrpc VIEW_REQUEST_SET → PROGRESS → servlet), driven by fetch()
-        inside the eu4 iframe. No Dojo UI navigation.
+        inside the core-webapp iframe (its origin discovered live, not
+        assumed — see _pull_legacy_via_api). No Dojo UI navigation.
       • Phase 3 — Modules and General Lists via the Selenium model-settings UI
         export (the REST API delivers them too sparse; see UI_ONLY_TARGETS).
     Any legacy grid that fails the classic-API path falls back to the
@@ -1160,7 +1199,6 @@ def download_model_exports_full(model, out_dir=None, name=None):
     workspace_id = entry["workspace_id"]
     out_dir = resolve_out_dir(entry, out_dir)
     config = _build_config(entry["shard"])
-    base = config["main_url"].rstrip("/")
     url = settings_url(entry)
 
     print(f"\n{'=' * 70}")
@@ -1192,7 +1230,7 @@ def download_model_exports_full(model, out_dir=None, name=None):
                 results[fn] = {"ok": False, "rows": None, "path": None,
                                "error": "could not open model-settings shell"}
         else:
-            _pull_legacy_via_api(browser, base, model_id, workspace_id, out_dir, results)
+            _pull_legacy_via_api(browser, model_id, workspace_id, out_dir, results)
 
         # ── Phase 2b: UI-export fallback for any legacy grid the API missed ─────
         failed = [t for t in _LEGACY_TARGETS

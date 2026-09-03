@@ -402,6 +402,38 @@ def settings_url(entry):
             f"/model-settings")
 
 
+def default_out_dir(entry, repo_root=REPO_ROOT):
+    """Where this model's CSVs live in the vault. Derived from the entry's
+    folder + raw_dir, NEVER from the display name: the two legitimately differ
+    (a shortcut named 'UMD' exports into a folder called 'AAC')."""
+    return os.path.join(repo_root, "customers", entry["folder"],
+                        "raw", "models", entry["raw_dir"])
+
+
+def resolve_out_dir(entry, out_dir=None, repo_root=REPO_ROOT):
+    """Resolve the export destination.
+
+    An explicit --out is created if absent (it is routinely a scratch dir).
+    The derived vault path must already exist: creating it would mean a typo in
+    raw_dir silently produces a second, wrong-named folder alongside the real
+    one, and a run that reports success while the wiki still points at the old
+    folder.
+    """
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+        return out_dir
+
+    path = default_out_dir(entry, repo_root)
+    if not os.path.isdir(path):
+        raise ValueError(
+            f"export folder {path!r} does not exist. Check "
+            f"models.MODELS['...']['raw_dir'] ({entry['raw_dir']!r}) and "
+            f"['folder'] ({entry['folder']!r}) against the vault, or pass "
+            f"--out explicitly for a scratch export."
+        )
+    return path
+
+
 def _build_config(shard):
     """Browser/login config for one shard. `shard` is REQUIRED and comes from
     the resolved model entry — never from a global env var."""
@@ -469,9 +501,7 @@ def download_model_exports(model, out_dir=None, headless_download_dir=None, name
     model_id = entry["model_id"]
     model_name = entry["display_name"]
 
-    if out_dir is None:
-        out_dir = os.path.join(REPO_ROOT, "raw", "models", model_name)
-    os.makedirs(out_dir, exist_ok=True)
+    out_dir = resolve_out_dir(entry, out_dir)
 
     download_dir = headless_download_dir or tempfile.mkdtemp(prefix="anaplan_scrape_")
     own_download_dir = headless_download_dir is None
@@ -893,9 +923,7 @@ def download_model_exports_api(model, out_dir=None, name=None, rest_only=False):
     entry = _resolve_model(model, name=name)
     model_id = entry["model_id"]
     model_name = entry["display_name"]
-    if out_dir is None:
-        out_dir = os.path.join(REPO_ROOT, "raw", "models", model_name)
-    os.makedirs(out_dir, exist_ok=True)
+    out_dir = resolve_out_dir(entry, out_dir)
     config = _build_config(entry["shard"])
 
     url = settings_url(entry)
@@ -1130,9 +1158,7 @@ def download_model_exports_full(model, out_dir=None, name=None):
     model_id = entry["model_id"]
     model_name = entry["display_name"]
     workspace_id = entry["workspace_id"]
-    if out_dir is None:
-        out_dir = os.path.join(REPO_ROOT, "raw", "models", model_name)
-    os.makedirs(out_dir, exist_ok=True)
+    out_dir = resolve_out_dir(entry, out_dir)
     config = _build_config(entry["shard"])
     base = config["main_url"].rstrip("/")
     url = settings_url(entry)
@@ -1217,7 +1243,10 @@ def _main(argv=None):
         default=None,
         help="Shortcut key from models.MODELS (e.g. 'modela'). Omit when using --list-models.",
     )
-    p.add_argument("--name", default=None, help="Override the model's display name.")
+    p.add_argument("--name", default=None,
+                   help="Display name for console output only. It does NOT select "
+                        "the output folder — that comes from the entry's folder + "
+                        "raw_dir (or --out).")
     p.add_argument("--out", default=None, help="Output directory for the CSV files.")
     p.add_argument("--full", action="store_true",
                    help="Also export the 8 legacy-engine files over the classic "

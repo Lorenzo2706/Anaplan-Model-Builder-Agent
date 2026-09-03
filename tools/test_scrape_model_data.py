@@ -7,6 +7,8 @@ customer's model scraped against another customer's shard, or into another
 customer's folder), which is cheap to assert here and expensive to notice
 live.
 """
+import os
+
 import pytest
 
 import scrape_model_data as smd
@@ -111,3 +113,37 @@ class TestSettingsUrl:
             "https://eu3.app.anaplan.com/a/modeling/customers/C1/workspaces/W1"
             "/models/M1/model-settings"
         )
+
+
+class TestOutDir:
+    def test_default_is_customer_scoped(self):
+        got = smd.default_out_dir(FAKE_ENTRY, repo_root="/repo")
+        assert got == os.path.join("/repo", "customers", "CustomerA",
+                                   "raw", "models", "ModelA 2.0")
+
+    def test_default_must_already_exist(self, tmp_path):
+        """A typo'd raw_dir must error, not silently create a stray sibling
+        folder that then looks like a successful export."""
+        with pytest.raises(ValueError) as exc:
+            smd.resolve_out_dir(FAKE_ENTRY, out_dir=None, repo_root=str(tmp_path))
+        assert "ModelA 2.0" in str(exc.value)
+
+    def test_default_used_when_it_exists(self, tmp_path):
+        target = tmp_path / "customers" / "CustomerA" / "raw" / "models" / "ModelA 2.0"
+        target.mkdir(parents=True)
+        got = smd.resolve_out_dir(FAKE_ENTRY, out_dir=None, repo_root=str(tmp_path))
+        assert os.path.normpath(got) == os.path.normpath(str(target))
+
+    def test_explicit_out_dir_is_created(self, tmp_path):
+        scratch = tmp_path / "scratch" / "probe"
+        got = smd.resolve_out_dir(FAKE_ENTRY, out_dir=str(scratch),
+                                  repo_root=str(tmp_path))
+        assert os.path.isdir(got)
+
+    def test_name_override_does_not_change_out_dir(self, tmp_path, monkeypatch):
+        target = tmp_path / "customers" / "CustomerA" / "raw" / "models" / "ModelA 2.0"
+        target.mkdir(parents=True)
+        monkeypatch.setattr(smd.models, "MODELS", {"a": dict(FAKE_ENTRY)})
+        entry = smd._resolve_model("a", name="Wrong Folder Name")
+        got = smd.resolve_out_dir(entry, out_dir=None, repo_root=str(tmp_path))
+        assert os.path.normpath(got) == os.path.normpath(str(target))

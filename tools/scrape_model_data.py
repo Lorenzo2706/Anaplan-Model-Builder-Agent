@@ -402,13 +402,11 @@ def _build_config(shard):
     }
 
 
-def list_available_models():
-    """
-    Log in and fetch every model visible to this account via the live Anaplan
-    API, independent of models.MODELS shortcuts.
-    """
-    # bridge: Task 3 replaces this with a real `shard` parameter.
-    config = _build_config(os.getenv("ANAPLAN_ENVIRONMENT", "eu2a"))
+def list_available_models(shard):
+    """Log in to `shard` and fetch every model visible to this account,
+    independent of models.MODELS. Used to bootstrap a customer's registry
+    entry, so it must not require one."""
+    config = _build_config(shard)
     download_dir = tempfile.mkdtemp(prefix="anaplan_list_models_")
     browser = None
     try:
@@ -1192,7 +1190,7 @@ def download_model_exports_full(model, out_dir=None, name=None):
 #  CLI
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _main():
+def _main(argv=None):
     p = argparse.ArgumentParser(
         description="API-driven Anaplan model export. Default mode produces 7 "
                     "fast files: 5 over the REST API v2 (HTTP) plus Modules and "
@@ -1222,10 +1220,17 @@ def _main():
                         "Versions, Actions, Imports, Views). No browser at all.")
     p.add_argument("--list-models", action="store_true",
                    help="Log in, fetch every model visible to this account, print JSON, and exit.")
-    args = p.parse_args()
+    p.add_argument("--shard", default=None,
+                   help="Anaplan shard to log into for --list-models (e.g. eu3). "
+                        "Required with --list-models, which has no registry entry "
+                        "to read a shard from.")
+    args = p.parse_args(argv)
 
     if args.list_models:
-        print(json.dumps(list_available_models(), indent=2))
+        if not args.shard:
+            p.error("--list-models requires --shard (e.g. --shard eu3): there is "
+                    "no registry entry to infer the shard from")
+        print(json.dumps(list_available_models(args.shard), indent=2))
         sys.exit(0)
 
     if not args.model:

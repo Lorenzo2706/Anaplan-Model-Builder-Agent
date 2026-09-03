@@ -35,3 +35,26 @@ class TestAppUrlForShard:
         not quietly resolve to some default shard."""
         with pytest.raises(ValueError):
             smd.app_url_for_shard("nonsense")
+
+
+class TestListModelsCli:
+    def test_list_models_requires_shard(self, capsys):
+        """--list-models has no registry entry to take a shard from, so it must
+        demand one explicitly rather than defaulting to any tenant."""
+        with pytest.raises(SystemExit) as exc:
+            smd._main(["--list-models"])
+        assert exc.value.code != 0
+        assert "--shard" in capsys.readouterr().err
+
+    def test_list_models_passes_shard_through(self, monkeypatch):
+        seen = {}
+
+        def fake_list(shard):
+            seen["shard"] = shard
+            return []
+
+        monkeypatch.setattr(smd, "list_available_models", fake_list)
+        with pytest.raises(SystemExit) as exc:
+            smd._main(["--list-models", "--shard", "eu3"])
+        assert exc.value.code == 0
+        assert seen["shard"] == "eu3"

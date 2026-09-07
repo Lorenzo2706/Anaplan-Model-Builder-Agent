@@ -260,18 +260,28 @@ def fetch_view_metadata(session, base, model_id, view_id):
 # believes is complete is the worst outcome for formula validation.
 MAX_CELLS = 50_000
 
-# TEMPORARY. Both of these encode one customer's model layout in a tracked,
-# public file, which is exactly what the customer-first registry exists to
-# stop. Task 7 of the Pass 2 plan deletes both and reads `engine` and
-# `workspace_label` off the resolved registry entry instead. Until then they
-# are placeholder-keyed, so a real deployment falls through to "unknown"
-# rather than shipping a customer's model names.
+# Engine per model, from CLAUDE.md. Surfaced in the digest because Classic
+# and Polaris differ on sparsity and aggregation, which changes how blanks
+# read.
+#
+# TEMPORARY. Both of the dicts below encode one customer's model layout in a
+# tracked, public file, which is exactly what the customer-first registry
+# exists to stop. Task 7 of the Pass 2 plan deletes both and reads `engine`
+# and `workspace_label` off the resolved registry entry instead. Until then
+# they are placeholder-keyed, so no real shortcut or raw_dir can ever match
+# either dict: `engine` falls through to "unknown" for every real model, and
+# `_DEV_SHORTCUTS` can never contain a real shortcut, so `workspace_label`
+# will read "PRODUCTION" even for a model that is genuinely DEV. The "unknown"
+# engine fails loud; the workspace mislabel fails quiet, but this tool is
+# read-only diagnostics, so it is accepted until Task 7 restores both
+# mappings from the registry.
 _ENGINE_BY_RAW_DIR = {
     "ModelA 2.0": "Polaris",
     "ModelB Prod": "Classic",
 }
 
-# Only `modela` sits in a DEV workspace; the rest are production.
+# Only `modela` sits in a DEV workspace; the rest are production. Placeholder
+# key only -- see the TEMPORARY note above.
 _DEV_SHORTCUTS = {"modela"}
 
 

@@ -36,6 +36,10 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    StaleElementReferenceException,
+)
 from selenium.webdriver.edge.service import Service as EdgeService
 
 load_dotenv()
@@ -367,6 +371,44 @@ def _dismiss_cookie_banner(browser: webdriver.Remote):
         pass
 
 
+BASIC_AUTH_CHOOSER_ID = "prelogin-anaplan-basic"
+PASSWORD_FIELD_ID = "password"
+
+
+def _await_basic_auth_password_form(browser, timeout=30):
+    """Get from the email step to the password form under either Anaplan flow.
+
+    Legacy: the email step lands on a chooser page carrying a "Log in with
+    Anaplan" button, and the password form appears only once it is clicked.
+    Current: the email step redirects straight to the regional identity host
+    (iam-<region>.anaplan.com), whose form already carries #password — the
+    chooser is never rendered, and on the prelogin page it exists only as a
+    hidden element that can never become clickable.
+
+    So wait for whichever of the two arrives first and act accordingly, rather
+    than requiring the chooser and timing out when Anaplan skips it.
+    """
+    def _whichever_arrives(drv):
+        # Check the password field first: on the legacy chooser page it is
+        # absent, so this can only match once the password form is really up.
+        for el_id in (PASSWORD_FIELD_ID, BASIC_AUTH_CHOOSER_ID):
+            try:
+                el = drv.find_element(By.ID, el_id)
+                if el.is_displayed():
+                    return (el_id, el)
+            except (NoSuchElementException, StaleElementReferenceException):
+                continue
+        return False
+
+    which, element = WebDriverWait(browser, timeout).until(_whichever_arrives)
+
+    if which == BASIC_AUTH_CHOOSER_ID:
+        element.click()
+        WebDriverWait(browser, timeout).until(
+            EC.presence_of_element_located((By.ID, PASSWORD_FIELD_ID))
+        )
+
+
 def login(browser: webdriver.Remote, config: dict):
     print("\n  → Opening browser and logging into Anaplan...")
     browser.get(config["main_url"])
@@ -381,13 +423,11 @@ def login(browser: webdriver.Remote, config: dict):
     ).click()
 
     if config.get("use_basic_auth"):
-        # Non-SSO: click the "Log in with Anaplan" button that appears after email
-        WebDriverWait(browser, 15).until(
-            EC.element_to_be_clickable((By.ID, "prelogin-anaplan-basic"))
-        ).click()
+        # Non-SSO: reach the password form, whichever shape Anaplan serves.
+        _await_basic_auth_password_form(browser)
 
         WebDriverWait(browser, 15).until(
-            EC.presence_of_element_located((By.ID, "password"))
+            EC.presence_of_element_located((By.ID, PASSWORD_FIELD_ID))
         ).send_keys(config["password"])
         time.sleep(1)
         WebDriverWait(browser, 15).until(

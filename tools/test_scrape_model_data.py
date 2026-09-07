@@ -7,6 +7,7 @@ customer's model scraped against another customer's shard, or into another
 customer's folder), which is cheap to assert here and expensive to notice
 live.
 """
+import json
 import os
 
 import pytest
@@ -334,3 +335,130 @@ class TestDownloadModelExportsApiRestOnlySeam:
 
         assert called == {"session": False, "pull": False}
         assert list(tmp_path.rglob("*.csv")) == []
+
+
+class TestListModelsStdoutIsPureJson:
+    """`--list-models` exists to be machine-read: `... > models.json` must yield
+    a file that parses. The browser/login helpers underneath it print progress
+    with print(), i.e. to stdout, so without care that chatter lands in the
+    redirected file and corrupts the payload."""
+
+    def _fake_lookup(self, shard):
+        # Mirrors the real helpers: _create_browser and login both print
+        # progress banners to stdout before any JSON is produced.
+        print("  → Trying Selenium Manager...")
+        print("  ✓ Edge driver ready (Selenium Manager).")
+        print("  → Opening browser and logging into Anaplan...")
+        print("  ✓ Logged in.")
+        return [{
+            "model_name": "ModelA 2.0",
+            "model_id": "M1",
+            "workspace_name": "WS",
+            "workspace_id": "W1",
+            "customer_id": "C1",
+        }]
+
+    def test_stdout_parses_as_json(self, monkeypatch, capsys):
+        monkeypatch.setattr(smd, "list_available_models", self._fake_lookup)
+
+        with pytest.raises(SystemExit) as exc:
+            smd._main(["--list-models", "--shard", "eu3"])
+        assert exc.value.code == 0
+
+        out = capsys.readouterr()
+        parsed = json.loads(out.out)          # must not raise
+        assert parsed[0]["model_id"] == "M1"
+
+    def test_progress_chatter_goes_to_stderr(self, monkeypatch, capsys):
+        monkeypatch.setattr(smd, "list_available_models", self._fake_lookup)
+
+        with pytest.raises(SystemExit):
+            smd._main(["--list-models", "--shard", "eu3"])
+
+        out = capsys.readouterr()
+        assert "Logged in" in out.err, "progress must stay visible on stderr"
+        assert "Logged in" not in out.out, "progress must not pollute the JSON"
+
+
+class TestLineItemHeaderAndRowsStayAligned:
+    """`Brought-Forward` was missing from LINE_ITEM_HEADER.
+
+    Anaplan's Line Items UI export is not one layout: some tenants emit three
+    memory/statistics columns and no Brought-Forward, others emit
+    Brought-Forward and none of the three. The split is per TENANT, not per
+    engine (Classic and Polaris models sit on both sides of it), so the header
+    has to be the union or the vault ends up with two incompatible schemas.
+
+    The REST payload does carry `broughtForward`, so unlike the three
+    statistics columns this one is real data that was being dropped on the
+    floor. The three statistics columns are asserted to stay blank so that a
+    future "fill these in" change has to face the fact that REST does not
+    return them.
+
+    The alignment assertion is the important one: build_line_items appends a
+    positional list, so inserting a column into the header without inserting a
+    value shifts every column after it and silently mislabels the CSV.
+    """
+
+    ITEM = {
+        "name": "Some Line Item",
+        "format": "NUMBER",
+        "formula": "1 + 1",
+        "summary": "Sum",
+        "appliesTo": [{"id": "1", "name": "Region"}],
+        "timeScale": "Month",
+        "timeRange": "Model Calendar",
+        "version": {"id": "v1", "name": "Actual"},
+        "style": "Normal",
+        "cellCount": 42,
+        "notes": "a note",
+        "isSummary": False,
+        "formulaScope": "All Versions",
+        "useSwitchover": True,
+        "breakback": False,
+        "broughtForward": True,
+        "startOfSection": False,
+        "referencedBy": [{"id": "9", "name": "Other Module"}],
+        "moduleName": "MOD 01",
+    }
+
+    def _build(self, monkeypatch, item):
+        monkeypatch.setattr(smd, "_get", lambda sess, url: {"items": [item]})
+        return smd.build_line_items(object(), "https://api.example", "MODEL")
+
+    def test_header_places_brought_forward_where_the_ui_export_does(self):
+        h = smd.LINE_ITEM_HEADER
+        assert "Brought-Forward" in h, "REST returns broughtForward; do not drop it"
+        assert h[h.index("Breakback") + 1] == "Brought-Forward"
+        assert h[h.index("Brought-Forward") + 1] == "Start of Section"
+
+    def test_every_row_is_exactly_as_wide_as_the_header(self, monkeypatch):
+        header, rows = self._build(monkeypatch, self.ITEM)
+        assert rows, "fixture should produce one row"
+        for row in rows:
+            assert len(row) == len(header), (
+                "row/header width drift mislabels every column after the gap"
+            )
+
+    def test_brought_forward_value_is_lowercase_blueprint_boolean(self, monkeypatch):
+        header, rows = self._build(monkeypatch, self.ITEM)
+        cell = dict(zip(header, rows[0]))
+        # Anaplan's own UI export writes lowercase true/false, and _b matches it.
+        assert cell["Brought-Forward"] == "true"
+        assert cell["Breakback"] == "false"
+        assert cell["Start of Section"] == "false"
+
+    def test_missing_brought_forward_is_blank_not_an_exception(self, monkeypatch):
+        """A tenant/API version that omits the key must not blow up the export
+        — a partial CSV is worse than a blank column."""
+        item = {k: v for k, v in self.ITEM.items() if k != "broughtForward"}
+        header, rows = self._build(monkeypatch, item)
+        cell = dict(zip(header, rows[0]))
+        assert cell["Brought-Forward"] == ""
+        assert cell["Module Name"] == "MOD 01", "columns after the gap must not shift"
+
+    def test_statistics_columns_stay_blank_because_rest_omits_them(self, monkeypatch):
+        header, rows = self._build(monkeypatch, self.ITEM)
+        cell = dict(zip(header, rows[0]))
+        for col in ("Populated Cell Count", "Memory Used", "Calculation Complexity"):
+            assert cell[col] == "", f"{col} is not in the REST payload"

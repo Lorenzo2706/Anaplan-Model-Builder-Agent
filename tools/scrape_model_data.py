@@ -103,6 +103,7 @@ As a library:
 """
 
 import argparse
+import contextlib
 import csv
 import json
 import os
@@ -715,14 +716,27 @@ def _write_csv(path, header, rows):
 #  Per-file builders (return (header, rows))
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Column layout copied verbatim from the Selenium export so ingestion is identical.
+# Column layout copied from the Selenium export so ingestion is identical.
+#
+# "Copied verbatim" is not quite true any more, because the Selenium export is
+# not one layout. Anaplan's Line Items grid differs per tenant: some tenants
+# emit three memory/statistics columns (Populated Cell Count, Memory Used,
+# Calculation Complexity) and no Brought-Forward; others emit Brought-Forward
+# and none of the three. That split is per TENANT, not per engine — Classic and
+# Polaris models appear on both sides of it — so neither variant can be picked
+# by looking at the model.
+#
+# This header is therefore the UNION, which is the only choice that keeps one
+# stable schema for the whole vault. The three statistics columns are not in the
+# REST payload at all and stay blank (see the "n/a" runs below); Brought-Forward
+# IS in the payload as `broughtForward`, so it carries a real value.
 LINE_ITEM_HEADER = [
     "", "Format", "Formula", "Summary", "Applies To", "Time Scale", "Time Range",
     "Versions", "Style", "Cell Count", "Populated Cell Count", "Memory Used",
     "Calculation Complexity", "Calculation Effort", "Notes", "Read Access Driver",
     "Write Access Driver", "Users List", "Parent", "Is Summary", "Formula Scope",
-    "Code", "Use Switchover", "Breakback", "Start of Section", "Data Tags",
-    "Referenced By", "Module Name",
+    "Code", "Use Switchover", "Breakback", "Brought-Forward", "Start of Section",
+    "Data Tags", "Referenced By", "Module Name",
 ]
 
 def build_line_items(sess, base, model_id):
@@ -750,6 +764,7 @@ def build_line_items(sess, base, model_id):
             "",                                  # code — n/a
             _b(li.get("useSwitchover")),
             _b(li.get("breakback")),
+            _b(li.get("broughtForward")),
             _b(li.get("startOfSection")),
             "",                                  # data tags — n/a
             _names(li.get("referencedBy")),
@@ -1324,7 +1339,14 @@ def _main(argv=None):
         if not args.shard:
             p.error("--list-models requires --shard (e.g. --shard eu3): there is "
                     "no registry entry to infer the shard from")
-        print(json.dumps(list_available_models(args.shard), indent=2))
+        # The browser/login helpers underneath print progress banners with
+        # print(), i.e. to stdout. --list-models is machine-read (its whole
+        # purpose is `... > models.json`), so keep stdout pure JSON and send
+        # the human-facing chatter to stderr, where it stays visible on a
+        # terminal but never lands in a redirected file.
+        with contextlib.redirect_stdout(sys.stderr):
+            found = list_available_models(args.shard)
+        print(json.dumps(found, indent=2))
         sys.exit(0)
 
     if not args.model:

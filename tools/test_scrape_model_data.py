@@ -12,32 +12,41 @@ import os
 
 import pytest
 
+import registry
 import scrape_model_data as smd
 
+# TestAppUrlForShard, TestResolveModel, TestSettingsUrl and TestOutDir used to
+# live here. app_url_for_shard, _resolve_model, settings_url, default_out_dir
+# and resolve_out_dir all moved into registry.py, and test_registry.py now
+# covers them against a placeholder CUSTOMERS tree. What remains here is only
+# what is genuinely scrape_model_data's own: the CLI, the core-webapp origin
+# validator, and the export seams.
 
-class TestAppUrlForShard:
-    def test_derives_url_from_shard_token(self):
-        assert smd.app_url_for_shard("eu3") == "https://eu3.app.anaplan.com/"
+# Placeholder registry tree. The real one is gitignored and differs per
+# machine, so a test that read it would pass or fail depending on whose clone
+# ran it. `eu9z` is a deliberately unassigned-looking shard token.
+FAKE_CUSTOMERS = {
+    "customera": {
+        "name": "CustomerA",
+        "shard": "eu9z",
+        "folder": "CustomerA",
+        "customer_id": "C1",
+        "models": {
+            "modela": {
+                "name": "ModelA",
+                # Shortcut key and raw_dir deliberately differ: a shortcut is
+                # an abbreviation the modeller types, raw_dir is the vault
+                # folder name, and the two drift the moment a model is renamed.
+                "raw_dir": "ModelA 2.0",
+                "workspace_id": "W1",
+                "model_id": "M1",
+            },
+        },
+    },
+}
 
-    def test_derives_url_for_a_second_known_shard(self):
-        assert smd.app_url_for_shard("eu2a") == "https://eu2a.app.anaplan.com/"
-
-    def test_normalises_case_and_whitespace(self):
-        assert smd.app_url_for_shard("  EU3 ") == "https://eu3.app.anaplan.com/"
-
-    @pytest.mark.parametrize("bad", ["", None, "eu2a.app.anaplan.com",
-                                     "https://eu3.app.anaplan.com/", "prod",
-                                     "eu3/../evil", "eu 3"])
-    def test_rejects_anything_that_is_not_a_shard_token(self, bad):
-        with pytest.raises(ValueError) as exc:
-            smd.app_url_for_shard(bad)
-        assert repr(bad) in str(exc.value) or "shard" in str(exc.value).lower()
-
-    def test_never_falls_back_to_eu2a(self):
-        """The 2026-09 regression this exists to prevent: an unknown shard must
-        not quietly resolve to some default shard."""
-        with pytest.raises(ValueError):
-            smd.app_url_for_shard("nonsense")
+FAKE_MODELS = registry.flatten(FAKE_CUSTOMERS)
+SHORTCUT = "customera:modela"
 
 
 class TestListModelsCli:
@@ -67,16 +76,16 @@ class TestListModelsCli:
         registry entry to infer one from). Passing it with a model shortcut
         must not be silently ignored — that's exactly the silent-divergence
         failure mode this branch exists to eliminate."""
-        monkeypatch.setattr(smd.models, "MODELS", {"a": dict(FAKE_ENTRY)})
+        monkeypatch.setattr(smd.registry, "MODELS", FAKE_MODELS)
         with pytest.raises(SystemExit) as exc:
-            smd._main(["a", "--shard", "eu9", "--rest-only"])
+            smd._main([SHORTCUT, "--shard", "eu9", "--rest-only"])
         assert exc.value.code != 0
         assert "--shard" in capsys.readouterr().err
 
     def test_shard_without_list_models_rejected_before_any_work(self, monkeypatch):
         """The rejection above must happen before the model resolves or any
         network/browser call is attempted."""
-        monkeypatch.setattr(smd.models, "MODELS", {"a": dict(FAKE_ENTRY)})
+        monkeypatch.setattr(smd.registry, "MODELS", FAKE_MODELS)
         monkeypatch.setattr(smd, "download_model_exports_api",
                             lambda *a, **k: pytest.fail("must not run"))
         monkeypatch.setattr(smd, "download_model_exports_full",
@@ -84,60 +93,23 @@ class TestListModelsCli:
         monkeypatch.setattr(smd, "download_model_exports",
                             lambda *a, **k: pytest.fail("must not run"))
         with pytest.raises(SystemExit):
-            smd._main(["a", "--shard", "eu9"])
+            smd._main([SHORTCUT, "--shard", "eu9"])
 
 
-FAKE_ENTRY = {
-    "name": "ModelA", "raw_dir": "ModelA 2.0", "folder": "CustomerA",
-    "shard": "eu3", "customer_id": "C1", "workspace_id": "W1", "model_id": "M1",
-}
+class TestReExportedRegistryNames:
+    """`app_url_for_shard` and `resolve_out_dir` are re-exported off
+    scrape_model_data so existing importers keep working after the definitions
+    moved to registry.py. Assert they are the SAME objects, not copies that
+    could drift."""
 
+    def test_app_url_for_shard_is_the_registry_one(self):
+        assert smd.app_url_for_shard is registry.app_url_for_shard
 
-class TestResolveModel:
-    def test_returns_merged_entry_with_all_required_keys(self, monkeypatch):
-        monkeypatch.setattr(smd.models, "MODELS", {"a": dict(FAKE_ENTRY)})
-        entry = smd._resolve_model("a")
-        for key in smd.REQUIRED_ENTRY_KEYS:
-            assert entry[key], f"{key} missing from resolved entry"
-        assert entry["shard"] == "eu3"
+    def test_resolve_out_dir_is_the_registry_one(self):
+        assert smd.resolve_out_dir is registry.resolve_out_dir
 
-    def test_name_override_sets_display_name_only(self, monkeypatch):
-        """--name is cosmetic: it must NOT change raw_dir, which selects the
-        output folder."""
-        monkeypatch.setattr(smd.models, "MODELS", {"a": dict(FAKE_ENTRY)})
-        entry = smd._resolve_model("a", name="Something Else")
-        assert entry["display_name"] == "Something Else"
-        assert entry["raw_dir"] == "ModelA 2.0"
-
-    @pytest.mark.parametrize("missing", ["raw_dir", "folder", "shard",
-                                         "customer_id", "workspace_id", "model_id"])
-    def test_missing_key_raises_naming_it(self, monkeypatch, missing):
-        broken = dict(FAKE_ENTRY)
-        del broken[missing]
-        monkeypatch.setattr(smd.models, "MODELS", {"a": broken})
-        with pytest.raises(ValueError) as exc:
-            smd._resolve_model("a")
-        assert missing in str(exc.value)
-
-    def test_bad_shard_in_entry_raises(self, monkeypatch):
-        broken = dict(FAKE_ENTRY, shard="https://eu3.app.anaplan.com/")
-        monkeypatch.setattr(smd.models, "MODELS", {"a": broken})
-        with pytest.raises(ValueError):
-            smd._resolve_model("a")
-
-    def test_unknown_shortcut_lists_valid_ones(self, monkeypatch):
-        monkeypatch.setattr(smd.models, "MODELS", {"a": dict(FAKE_ENTRY)})
-        with pytest.raises(ValueError) as exc:
-            smd._resolve_model("nope")
-        assert "'a'" in str(exc.value) or "a" in str(exc.value)
-
-
-class TestSettingsUrl:
-    def test_built_from_entry_shard_and_guids(self):
-        assert smd.settings_url(FAKE_ENTRY) == (
-            "https://eu3.app.anaplan.com/a/modeling/customers/C1/workspaces/W1"
-            "/models/M1/model-settings"
-        )
+    def test_repo_root_is_the_registry_one(self):
+        assert smd.REPO_ROOT == registry.REPO_ROOT
 
 
 class TestCoreWebappOrigin:
@@ -161,58 +133,6 @@ class TestCoreWebappOrigin:
         assert jsonrpc == "https://eu9.app.anaplan.com/core-webapp-WS1/anaplan/jsonrpc"
         assert servlet == ("https://eu9.app.anaplan.com/core-webapp-WS1/anaplan/"
                            "servlet?taskType=export")
-
-
-class TestOutDir:
-    def test_default_is_customer_scoped(self):
-        got = smd.default_out_dir(FAKE_ENTRY, repo_root="/repo")
-        assert got == os.path.join("/repo", "customers", "CustomerA",
-                                   "raw", "models", "ModelA 2.0")
-
-    def test_default_must_already_exist(self, tmp_path):
-        """A typo'd raw_dir must error, not silently create a stray sibling
-        folder that then looks like a successful export."""
-        with pytest.raises(ValueError) as exc:
-            smd.resolve_out_dir(FAKE_ENTRY, out_dir=None, repo_root=str(tmp_path))
-        assert "ModelA 2.0" in str(exc.value)
-
-    def test_default_used_when_it_exists(self, tmp_path):
-        target = tmp_path / "customers" / "CustomerA" / "raw" / "models" / "ModelA 2.0"
-        target.mkdir(parents=True)
-        got = smd.resolve_out_dir(FAKE_ENTRY, out_dir=None, repo_root=str(tmp_path))
-        assert os.path.normpath(got) == os.path.normpath(str(target))
-
-    def test_explicit_out_dir_is_created(self, tmp_path):
-        scratch = tmp_path / "scratch" / "probe"
-        got = smd.resolve_out_dir(FAKE_ENTRY, out_dir=str(scratch),
-                                  repo_root=str(tmp_path))
-        assert os.path.isdir(got)
-
-    def test_missing_folder_error_names_the_shortcut(self, tmp_path, monkeypatch):
-        """The ValueError used to print the literal models.MODELS['...'], which
-        can't be searched for in models.py. Once an entry has gone through
-        _resolve_model it carries the actual shortcut key, and the error
-        should name it."""
-        monkeypatch.setattr(smd.models, "MODELS", {"my-shortcut": dict(FAKE_ENTRY)})
-        entry = smd._resolve_model("my-shortcut")
-        with pytest.raises(ValueError) as exc:
-            smd.resolve_out_dir(entry, out_dir=None, repo_root=str(tmp_path))
-        assert "my-shortcut" in str(exc.value)
-
-    def test_missing_folder_error_tolerates_entry_without_shortcut(self, tmp_path):
-        """resolve_out_dir is also called directly in tests/library use with a
-        plain dict that never went through _resolve_model — must not KeyError
-        just because 'shortcut' is absent."""
-        with pytest.raises(ValueError):
-            smd.resolve_out_dir(FAKE_ENTRY, out_dir=None, repo_root=str(tmp_path))
-
-    def test_name_override_does_not_change_out_dir(self, tmp_path, monkeypatch):
-        target = tmp_path / "customers" / "CustomerA" / "raw" / "models" / "ModelA 2.0"
-        target.mkdir(parents=True)
-        monkeypatch.setattr(smd.models, "MODELS", {"a": dict(FAKE_ENTRY)})
-        entry = smd._resolve_model("a", name="Wrong Folder Name")
-        got = smd.resolve_out_dir(entry, out_dir=None, repo_root=str(tmp_path))
-        assert os.path.normpath(got) == os.path.normpath(str(target))
 
 
 class _FakeWebDriverException(Exception):
@@ -281,21 +201,24 @@ class TestDownloadModelExportsApiRestOnlySeam:
     entry — was previously only tested at the resolve_out_dir helper level,
     never through the real CLI/library entry point, which is why C3's stale
     docs went unnoticed). Monkeypatches only the network/browser seams
-    (_api_session, _pull_api_files) plus default_out_dir (so the derived path
-    lands under tmp_path instead of the real repo), and drives everything else
-    — _resolve_model, resolve_out_dir's own existence check — for real."""
+    (_api_session, _pull_api_files) plus registry.REPO_ROOT (so the derived
+    path lands under tmp_path instead of the real repo), and drives everything
+    else — resolve_shortcut, ResolvedModel.default_out_dir, resolve_out_dir's
+    own existence check — for real."""
 
-    def _patch_default_out_dir_under(self, monkeypatch, tmp_path):
-        def fake_default_out_dir(entry, repo_root=None):
-            path = os.path.join(str(tmp_path), "customers", entry["folder"],
-                                "raw", "models", entry["raw_dir"])
-            os.makedirs(path, exist_ok=True)
-            return path
-        monkeypatch.setattr(smd, "default_out_dir", fake_default_out_dir)
+    def _repo_root_under(self, monkeypatch, tmp_path, entry):
+        """Point registry.REPO_ROOT at tmp_path and create the vault folder the
+        entry derives, so resolve_out_dir's existence check runs for real
+        against a throwaway tree instead of the developer's vault."""
+        monkeypatch.setattr(registry, "REPO_ROOT", str(tmp_path))
+        path = os.path.join(str(tmp_path), "customers", entry["folder"],
+                            "raw", "models", entry["raw_dir"])
+        os.makedirs(path, exist_ok=True)
+        return path
 
     def test_out_dir_comes_from_entry_and_name_does_not_move_it(self, tmp_path, monkeypatch):
-        self._patch_default_out_dir_under(monkeypatch, tmp_path)
-        monkeypatch.setattr(smd.models, "MODELS", {"a": dict(FAKE_ENTRY)})
+        monkeypatch.setattr(smd.registry, "MODELS", FAKE_MODELS)
+        self._repo_root_under(monkeypatch, tmp_path, FAKE_MODELS[SHORTCUT])
         monkeypatch.setattr(smd, "_api_session", lambda: object())
 
         pull_calls = []
@@ -307,7 +230,7 @@ class TestDownloadModelExportsApiRestOnlySeam:
         monkeypatch.setattr(smd, "_pull_api_files", fake_pull)
 
         results = smd.download_model_exports_api(
-            "a", name="A Totally Different Display Name", rest_only=True)
+            SHORTCUT, name="A Totally Different Display Name", rest_only=True)
 
         expected_dir = os.path.join(str(tmp_path), "customers", "CustomerA",
                                     "raw", "models", "ModelA 2.0")
@@ -318,9 +241,10 @@ class TestDownloadModelExportsApiRestOnlySeam:
         assert results["Line Items.csv"]["ok"] is True
 
     def test_bad_shard_aborts_before_any_session_or_file(self, tmp_path, monkeypatch):
-        self._patch_default_out_dir_under(monkeypatch, tmp_path)
-        broken = dict(FAKE_ENTRY, shard="not-a-shard")
-        monkeypatch.setattr(smd.models, "MODELS", {"a": broken})
+        broken = registry.flatten(
+            {"customera": dict(FAKE_CUSTOMERS["customera"], shard="not-a-shard")})
+        monkeypatch.setattr(smd.registry, "MODELS", broken)
+        self._repo_root_under(monkeypatch, tmp_path, broken[SHORTCUT])
 
         called = {"session": False, "pull": False}
         monkeypatch.setattr(
@@ -331,7 +255,7 @@ class TestDownloadModelExportsApiRestOnlySeam:
             lambda *a, **k: called.__setitem__("pull", True))
 
         with pytest.raises(ValueError):
-            smd.download_model_exports_api("a", rest_only=True)
+            smd.download_model_exports_api(SHORTCUT, rest_only=True)
 
         assert called == {"session": False, "pull": False}
         assert list(tmp_path.rglob("*.csv")) == []

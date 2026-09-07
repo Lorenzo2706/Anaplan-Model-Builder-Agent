@@ -8,6 +8,16 @@ depending on whose clone ran it.
 The failure mode these guard against is a silent WRONG-TENANT operation: one
 customer's model resolved against another customer's shard, folder or tenant
 GUID. That is cheap to assert here and expensive to notice live.
+
+ONE DOCUMENTED EXCEPTION to "placeholder data only"
+
+    TestModuleLevelLoad::test_every_entry_has_the_full_merged_shape and
+    ::test_import_did_not_read_dotenv read the developer's real, gitignored
+    models.py. That is deliberate: they assert the *shape* of whatever the
+    local file happens to be and never a value, so they pass on any
+    correctly-migrated clone, fail on an unmigrated one, and pass trivially on
+    a fresh clone whose models.py is empty. No customer string can enter this
+    file through them.
 """
 import pytest
 
@@ -323,6 +333,15 @@ class TestDerivedUrlsAndPaths:
         assert "Whatever" not in r.default_out_dir
         assert r.default_out_dir.endswith("ModelA 2.0")
 
+    def test_default_out_dir_never_uses_the_pre_restructure_root(self):
+        """The vault has no <repo>/raw/models/ any more - every model's CSVs
+        live under customers/<folder>/raw/models/. Regression guard carried
+        over from fetch_model_data.resolve_raw_dir's tests when that function
+        was replaced by ResolvedModel.default_out_dir."""
+        parts = registry.os.path.normpath(
+            self._resolved().default_out_dir).split(registry.os.sep)
+        assert parts[-5] == "customers"
+
     def test_nux_out_dir_is_the_customers_UI_folder(self):
         parts = registry.os.path.normpath(self._resolved().nux_out_dir).split(registry.os.sep)
         assert parts[-2:] == ["CustomerB", "UI"]
@@ -347,3 +366,42 @@ class TestResolveOutDir:
         with pytest.raises(ValueError) as exc:
             registry.resolve_out_dir(r)
         assert "ModelA 2.0" in str(exc.value)
+
+
+class TestModuleLevelLoad:
+    def test_models_module_is_loaded_into_MODELS(self):
+        """registry.MODELS is what every consumer reads. It must be a
+        flattened registry, not the raw tree."""
+        assert isinstance(registry.MODELS, dict)
+        assert all(":" in k for k in registry.MODELS)
+
+    def test_every_entry_has_the_full_merged_shape(self):
+        for shortcut, entry in registry.MODELS.items():
+            for key in registry.CUSTOMER_KEYS + registry.MODEL_KEYS:
+                assert entry.get(key), f"{shortcut} is missing {key}"
+
+    def test_resolve_shortcut_binds_to_MODELS(self, monkeypatch):
+        monkeypatch.setattr(registry, "MODELS", registry.flatten(CUSTOMERS))
+        assert registry.resolve_shortcut("customera:modela").model_id == "MODEL-A1"
+
+    def test_import_did_not_read_dotenv(self):
+        """The 2026-08-14 'models/None' incident: models.py resolved every
+        GUID via os.getenv() at import time, so any consumer that imported it
+        before load_dotenv() got None for every id. The fix is structural -
+        models.py holds literals now and reads no environment at all - so this
+        asserts the absence of the mechanism, which is what replaces
+        test_env_import_order.py."""
+        import inspect
+        import models
+        src = inspect.getsource(models)
+        assert "getenv" not in src, (
+            "models.py must hold literal values. Reading the environment at "
+            "import time is what caused the models/None incident; the "
+            "import-order guard that used to catch it is gone because the "
+            "mechanism is supposed to be gone."
+        )
+        assert "dotenv" not in src
+
+    def test_customer_keys_are_sorted(self, monkeypatch):
+        monkeypatch.setattr(registry, "CUSTOMERS", CUSTOMERS)
+        assert registry.customer_keys() == ["customera", "customerb"]

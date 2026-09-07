@@ -153,8 +153,9 @@ Then:
 - `--out-dir` is **required** and must be your session scratchpad — never a path
   inside the repo (it is under OneDrive sync). The tool refuses a repo path.
 - Shortcut keys, engines and DEV/PROD workspaces are **not listed here** — they are
-  per-customer and live in `tools/models.py` (gitignored). Read `MODELS` there, or
-  `customers/registry.md` for the customer/model/engine table.
+  per-customer and live in `tools/models.py` (gitignored). Read `CUSTOMERS` there, or
+  `customers/registry.md` for the customer/model/engine table. A shortcut is
+  `customer:model`, or a bare model key when only one customer uses it.
 - Narrow aggressively. `--page` shrinks the actual fetch; `--line-items` and
   `--periods` shrink the digest.
 - For a list: `python tools/fetch_model_data.py list <shortcut> "<List Name>" --out-dir ...`

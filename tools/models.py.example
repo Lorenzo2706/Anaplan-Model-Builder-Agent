@@ -1,27 +1,85 @@
-from os import getenv
+"""Registry data for the Anaplan scraper toolchain.
 
-# Example shortcut entry — copy this pattern for each model you want to scrape.
-# `customer_id` and the workspace id are shared across every model in the same
-# tenant/workspace; only `model_id` differs per model. Add `<PREFIX>_MODEL_ID`
-# (and a workspace var if it's a new workspace) to `.env`, uncomment and adapt
-# the block below, then register it in MODELS.
-#
-# modela = {
-#     "name": "ModelA",
-#     # Folder under raw/models/ holding this model's CSV export. REQUIRED by
-#     # fetch_model_data.py. It is a separate key because "name" does not always
-#     # match the folder: a shortcut named "modela" can point at a folder
-#     # called "ModelA 2.0", and abbreviations rarely match folder names.
-#     "raw_dir": "ModelA 2.0",
-#     # Vault folder under customers/ this model belongs to.
-#     "folder": "CustomerA",
-#     # Bare Anaplan app shard token this tenant logs into (e.g. "eu2a", "eu3").
-#     "shard": "eu2a",
-#     "customer_id": getenv("CUSTOMER_ID"),
-#     "workspace_id": getenv("MODELA_WORKSPACE"),
-#     "model_id": getenv("MODELA_MODEL_ID"),
-# }
+PURE DATA. No imports, no environment lookups, no logic - all of that lives
+in the tracked tools/registry.py. This file is gitignored because it holds
+tenant GUIDs and customer folder names.
 
-MODELS = {
-    # "modela": modela,
+Why literals and not environment lookups: models.py used to resolve every
+GUID from the environment at import time, so any consumer that imported it
+before `.env` had been loaded silently got None for every id - which showed
+up live as a request to .../models/None/views/... The values are literals
+now, so the failure mode is structurally impossible.
+
+KEEP IT THAT WAY. tools/test_registry.py asserts that this file's source
+contains neither of the two function names involved in that incident - not
+even inside a comment or this docstring - because a plain substring tripwire
+is the only version of that check that cannot itself be fooled. If you need
+to refer to those mechanisms, describe them rather than naming them, as this
+docstring does.
+
+SHAPE
+
+    CUSTOMERS = {
+        "<customer_key>": {
+            "name":        display name,
+            "shard":       bare Anaplan app shard token, e.g. "eu2a", "eu3"
+            "folder":      folder under customers/ holding this customer's vault
+            "customer_id": tenant GUID
+            "models": {
+                "<model_key>": {
+                    "name":            display name,
+                    "raw_dir":         folder under
+                                       customers/<folder>/raw/models/
+                    "workspace_id":    workspace GUID
+                    "model_id":        model GUID
+                    "engine":          "Classic" | "Polaris"   (optional,
+                                       defaults to "unknown")
+                    "workspace_label": "DEV" | "PRODUCTION"    (optional,
+                                       defaults to "PRODUCTION")
+                },
+            },
+        },
+    }
+
+Customer fields are inherited by every model under that customer, so the
+shard and tenant GUID are declared ONCE. A model may override an inherited
+field (a second workspace on another shard is legal); the model's own value
+wins.
+
+Keys become halves of a "customer:model" composite, so they may contain only
+letters, digits, '_', '.' and '-' - no ':' and no whitespace. Address a model
+as "customera:modela", or by its bare model key when no other customer uses
+that key.
+
+`raw_dir` is a separate key from `name` because shortcut keys are
+abbreviations a modeller types and drift from folder names as soon as a model
+is renamed: a shortcut called "modela" can point at a folder called
+"ModelA 2.0". No fuzzy match can bridge them.
+
+Find a new customer's GUIDs without hand-editing anything:
+
+    python tools/scrape_model_data.py --list-models --shard eu3 > models.json
+
+or, once the customer exists here, get a paste-ready snippet:
+
+    python tools/scrape_model_data.py --list-models --customer customera --emit-config
+"""
+
+CUSTOMERS = {
+    # "customera": {
+    #     "name": "CustomerA",
+    #     "shard": "eu2a",
+    #     "folder": "CustomerA",
+    #     "customer_id": "00000000000000000000000000000000",
+    #     "models": {
+    #         "modela": {
+    #             "name": "ModelA",
+    #             "raw_dir": "ModelA 2.0",
+    #             "workspace_id": "00000000000000000000000000000000",
+    #             "model_id": "00000000000000000000000000000000",
+    #             "engine": "Polaris",
+    #             "workspace_label": "DEV",
+    #         },
+    #     },
+    # },
 }

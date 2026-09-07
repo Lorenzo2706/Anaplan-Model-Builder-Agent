@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import fetch_model_data
+import registry
 from fetch_model_data import (
     Grid,
     GridTooLargeError,
@@ -27,7 +28,6 @@ from fetch_model_data import (
     parse_page_arg,
     parse_view_data,
     resolve_page_selection,
-    resolve_raw_dir,
     row_stats,
     safe_print,
     select_sample_indices,
@@ -116,72 +116,12 @@ def test_parse_view_data_normalizes_null_cell_to_none_too():
     assert grid.cells[0] == [None, "0"]
 
 
-FAKE_MODELS = {
-    # Shortcut keys deliberately do NOT match raw_dir: a shortcut is an
-    # abbreviation the modeller types, raw_dir is the vault folder name, and
-    # the two drift apart the moment a model is renamed. No fuzzy match can
-    # bridge them, which is why raw_dir is a required key.
-    "modela": {"name": "ModelA", "raw_dir": "ModelA 2.0",
-               "folder": "CustomerA", "model_id": "M1"},
-    "modelb": {"name": "ModelB", "raw_dir": "ModelB Prod",
-               "folder": "CustomerB", "model_id": "M2"},
-    "broken": {"name": "Broken", "folder": "CustomerA", "model_id": "M3"},
-    "nofolder": {"name": "NoFolder", "raw_dir": "ModelC", "model_id": "M4"},
-}
-
-
-def test_resolve_raw_dir_uses_raw_dir_not_name(tmp_path):
-    (tmp_path / "customers" / "CustomerA" / "raw" / "models" / "ModelA 2.0").mkdir(parents=True)
-    got = resolve_raw_dir("modela", FAKE_MODELS, str(tmp_path))
-    assert Path(got).name == "ModelA 2.0"
-
-
-def test_resolve_raw_dir_is_scoped_by_customer_folder(tmp_path):
-    """The load-bearing assertion of this task. Two customers may legitimately
-    use the same raw_dir name ('Data Hub' is a near-universal model name), so
-    the path MUST include the customer folder or one customer's export silently
-    reads the other's CSVs."""
-    (tmp_path / "customers" / "CustomerB" / "raw" / "models" / "ModelB Prod").mkdir(parents=True)
-    got = resolve_raw_dir("modelb", FAKE_MODELS, str(tmp_path))
-    assert Path(got).parts[-4:] == ("CustomerB", "raw", "models", "ModelB Prod")
-
-
-def test_resolve_raw_dir_never_uses_the_pre_restructure_root(tmp_path):
-    """Regression guard for the bug this task fixes: the vault has no
-    <repo>/raw/models/ any more. If someone reintroduces that path, this fails
-    even though the folder it wants exists."""
-    (tmp_path / "raw" / "models" / "ModelA 2.0").mkdir(parents=True)
-    with pytest.raises(ValueError) as exc:
-        resolve_raw_dir("modela", FAKE_MODELS, str(tmp_path))
-    assert "customers" in str(exc.value)
-
-
-def test_resolve_raw_dir_unknown_shortcut_lists_valid_ones(tmp_path):
-    with pytest.raises(ValueError) as exc:
-        resolve_raw_dir("nope", FAKE_MODELS, str(tmp_path))
-    assert "modela" in str(exc.value) and "modelb" in str(exc.value)
-
-
-def test_resolve_raw_dir_missing_raw_dir_key_names_it(tmp_path):
-    with pytest.raises(ValueError) as exc:
-        resolve_raw_dir("broken", FAKE_MODELS, str(tmp_path))
-    assert "raw_dir" in str(exc.value)
-
-
-def test_resolve_raw_dir_missing_folder_key_names_it(tmp_path):
-    """`folder` is as mandatory as `raw_dir` now. An entry without it has no
-    resolvable location, and defaulting it would pick some customer's vault at
-    random."""
-    with pytest.raises(ValueError) as exc:
-        resolve_raw_dir("nofolder", FAKE_MODELS, str(tmp_path))
-    assert "folder" in str(exc.value)
-
-
-def test_resolve_raw_dir_missing_folder_on_disk_errors(tmp_path):
-    (tmp_path / "customers" / "CustomerA" / "raw" / "models").mkdir(parents=True)
-    with pytest.raises(ValueError) as exc:
-        resolve_raw_dir("modela", FAKE_MODELS, str(tmp_path))
-    assert "ModelA 2.0" in str(exc.value)
+# resolve_raw_dir and its seven tests used to live here. The function is gone:
+# the vault path for a model is ResolvedModel.default_out_dir now, derived from
+# the customer's `folder` plus the model's `raw_dir`, and test_registry.py's
+# TestDerivedUrlsAndPaths / TestResolveOutDir carry its assertions - raw_dir
+# not name, customer-folder scoping, the "no <repo>/raw/models/ any more"
+# regression guard, and the must-already-exist check.
 
 
 # Row 2 is a SAVED view sharing the module's exact name with a different ID,
@@ -648,17 +588,17 @@ def test_out_dir_is_required():
     """The tool must never pick a fallback location for client data."""
     parser = build_arg_parser()
     with pytest.raises(SystemExit):
-        parser.parse_args(["module", "fsp", "REV 01. Revenue Calc"])
+        parser.parse_args(["module", SHORTCUT, "REV 01. Revenue Calc"])
 
 
 def test_parses_module_command_with_all_narrowing():
     args = build_arg_parser().parse_args([
-        "module", "fsp", "REV 01. Revenue Calc", "--out-dir", "/scratch",
+        "module", SHORTCUT, "REV 01. Revenue Calc", "--out-dir", "/scratch",
         "--page", "Product:Widget A", "--line-items", "Volume,Price",
         "--periods", "Jan 26:Mar 26", "--sample", "5",
     ])
     assert args.command == "module"
-    assert args.shortcut == "fsp"
+    assert args.shortcut == SHORTCUT
     assert args.name == "REV 01. Revenue Calc"
     assert args.out_dir == "/scratch"
     assert args.page == "Product:Widget A"
@@ -675,7 +615,7 @@ def test_parses_list_command():
 
 def test_sample_defaults_to_ten():
     args = build_arg_parser().parse_args(
-        ["module", "fsp", "M", "--out-dir", "/scratch"])
+        ["module", SHORTCUT, "M", "--out-dir", "/scratch"])
     assert args.sample == 10
 
 
@@ -743,9 +683,23 @@ def test_fetch_list_items_reads_listItems_key():
 # so a future refactor that reorders the guard is caught, and assert on the
 # real exit code (2) main() returns.
 
-FAKE_MODELS_FOR_MAIN = {
-    "fsp": {"name": "FSP", "raw_dir": "FSP 2.0", "model_id": "M1"},
+# Placeholder registry, flattened through the real registry.flatten() so its
+# shape can never drift from what resolve_shortcut() actually consumes.
+FAKE_CUSTOMERS_FOR_MAIN = {
+    "customera": {
+        "name": "CustomerA",
+        "shard": "eu9z",
+        "folder": "CustomerA",
+        "customer_id": "C1",
+        "models": {
+            "modela": {"name": "ModelA", "raw_dir": "ModelA 2.0",
+                       "workspace_id": "W1", "model_id": "M1"},
+        },
+    },
 }
+
+FAKE_MODELS_FOR_MAIN = registry.flatten(FAKE_CUSTOMERS_FOR_MAIN)
+SHORTCUT = "customera:modela"
 
 
 class _OpenSessionCalled(Exception):
@@ -758,7 +712,7 @@ class _OpenSessionCalled(Exception):
 @pytest.fixture(autouse=True)
 def _stub_session_for_guard_tests(request, monkeypatch):
     """Every out-dir-guard test in this module stubs open_session() and
-    models.MODELS UNCONDITIONALLY - including the tests that expect the
+    registry.MODELS UNCONDITIONALLY - including the tests that expect the
     guard to REJECT the path. If the guard under test is broken (e.g. a
     regression reintroducing the old raw startswith() comparison), a
     "rejects" case can silently fall through past the guard; without this
@@ -769,7 +723,7 @@ def _stub_session_for_guard_tests(request, monkeypatch):
     instead of ever reaching the network."""
     if "out_dir_guard" not in request.node.name:
         return
-    monkeypatch.setattr(fetch_model_data.models, "MODELS", FAKE_MODELS_FOR_MAIN)
+    monkeypatch.setattr(fetch_model_data.registry, "MODELS", FAKE_MODELS_FOR_MAIN)
 
     def boom():
         raise _OpenSessionCalled()
@@ -779,13 +733,13 @@ def _stub_session_for_guard_tests(request, monkeypatch):
 
 def test_out_dir_guard_rejects_path_inside_repo(capsys):
     out_dir = os.path.join(fetch_model_data.REPO_ROOT, "raw", "models")
-    rc = main(["module", "fsp", "X", "--out-dir", out_dir])
+    rc = main(["module", SHORTCUT, "X", "--out-dir", out_dir])
     assert rc == 2
     assert "inside the repository" in capsys.readouterr().err
 
 
 def test_out_dir_guard_rejects_repo_root_itself(capsys):
-    rc = main(["module", "fsp", "X", "--out-dir", fetch_model_data.REPO_ROOT])
+    rc = main(["module", SHORTCUT, "X", "--out-dir", fetch_model_data.REPO_ROOT])
     assert rc == 2
     assert "inside the repository" in capsys.readouterr().err
 
@@ -798,7 +752,7 @@ def test_out_dir_guard_rejects_differently_cased_path_inside_repo(capsys):
     written into a OneDrive-synced repo - the exact failure the guard exists
     to prevent."""
     out_dir = os.path.join(fetch_model_data.REPO_ROOT, "raw", "models").upper()
-    rc = main(["module", "fsp", "X", "--out-dir", out_dir])
+    rc = main(["module", SHORTCUT, "X", "--out-dir", out_dir])
     assert rc == 2
     assert "inside the repository" in capsys.readouterr().err
 
@@ -809,9 +763,9 @@ def test_out_dir_guard_allows_sibling_directory_sharing_prefix():
     be rejected."""
     sibling = fetch_model_data.REPO_ROOT + "-backup"
     with pytest.raises(_OpenSessionCalled):
-        main(["module", "fsp", "X", "--out-dir", sibling])
+        main(["module", SHORTCUT, "X", "--out-dir", sibling])
 
 
 def test_out_dir_guard_allows_genuinely_outside_path(tmp_path):
     with pytest.raises(_OpenSessionCalled):
-        main(["module", "fsp", "X", "--out-dir", str(tmp_path)])
+        main(["module", SHORTCUT, "X", "--out-dir", str(tmp_path)])

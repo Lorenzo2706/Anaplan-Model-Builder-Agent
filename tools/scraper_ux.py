@@ -44,7 +44,7 @@ from selenium.webdriver.edge.service import Service as EdgeService
 
 load_dotenv()
 
-import models
+import registry
 
 try:
     from webdriver_manager.microsoft import EdgeChromiumDriverManager
@@ -447,11 +447,11 @@ def login(browser: webdriver.Remote, config: dict):
 
 def _select_model(browser: webdriver.Remote, config: dict) -> tuple[str, str, str, str]:
     """
-    Offers configured shortcuts from models.py first, falling back to the
+    Offers configured shortcuts from the registry first, falling back to the
     live API browser if none are configured or the user wants to browse.
     Returns (model_id, model_name, workspace_guid, customer_id).
     """
-    configured_models = getattr(models, "MODELS", {})
+    configured_models = registry.MODELS
     shortcuts = {
         key: m for key, m in configured_models.items()
         if m.get("customer_id") and m.get("workspace_id") and m.get("model_id")

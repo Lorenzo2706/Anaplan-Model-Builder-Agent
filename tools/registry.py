@@ -343,3 +343,33 @@ def resolve_out_dir(resolved, out_dir=None):
             f"explicitly for a scratch export."
         )
     return path
+
+
+# ============================================================================
+#  Module-level registry
+# ============================================================================
+# Everything above is pure and takes its input as a parameter. This is the one
+# place that reaches for the gitignored data file, so it is at the bottom and
+# consumers import `registry`, never `models`.
+#
+# No try/except ImportError around `import models`: a clone without models.py
+# has no registry, and the ImportError names the file to create. Swallowing it
+# would present as "unknown shortcut" for every model instead.
+import models  # noqa: E402
+
+check_not_legacy(models)
+
+CUSTOMERS = getattr(models, "CUSTOMERS", {}) or {}
+MODELS = flatten(CUSTOMERS)
+ALIASES = aliases(MODELS)
+
+
+def resolve_shortcut(key, customer=None, name=None):
+    """resolve() bound to the module-level registry. What consumers call."""
+    return resolve(key, MODELS, customer=customer, name=name)
+
+
+def customer_keys():
+    """Configured customer keys, sorted. Used by the CLI's --customer choices
+    and the wizard's customer menu."""
+    return sorted(CUSTOMERS)

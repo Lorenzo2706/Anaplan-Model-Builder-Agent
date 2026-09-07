@@ -117,11 +117,15 @@ from glob import glob
 import requests
 from selenium.webdriver.common.by import By
 
-# import order matters: scraper_ux loads .env before models reads env-backed IDs.
 import scraper_ux
-import models
+import registry
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Re-exported so existing importers of these names keep working. The
+# definitions moved to registry.py, which is now the single place that
+# knows the registry's shape.
+app_url_for_shard = registry.app_url_for_shard
+resolve_out_dir = registry.resolve_out_dir
+REPO_ROOT = registry.REPO_ROOT
 
 # The 8 legacy-engine grids that the REST API v2 does NOT expose. Default
 # (REST-only) mode skips them and reports them as such; --full retrieves them
@@ -168,34 +172,6 @@ EXPORT_TARGETS = [
     ("Users", "Roles -> Lists", "Roles Lists.csv"),
     ("Users", "Roles -> Actions", "Roles Actions.csv"),
 ]
-
-
-# Anaplan app shards follow one uniform host pattern, so the URL is DERIVED
-# rather than looked up — onboarding a customer on a new shard must not require
-# a code edit. KNOWN_SHARDS is only a hint list for error messages (and, in
-# Pass 2, the interactive wizard's menu); it is deliberately NOT a gate, so a
-# shard Anaplan adds tomorrow works today.
-KNOWN_SHARDS = ("eu1a", "eu2a", "eu3", "eu4", "us1a", "us2a", "ca1a", "ap1a")
-
-_SHARD_RE = re.compile(r"^[a-z]{2}\d{1,2}[a-z]?$")
-
-
-def app_url_for_shard(shard):
-    """Return the app-shard base URL for `shard` (e.g. 'eu3').
-
-    Raises ValueError on anything that is not a bare shard token. There is
-    deliberately NO default: the previous `.get(env, ANAPLAN_URLS["eu2a"])`
-    meant a typo'd or missing shard logged into whichever tenant the default
-    named and exported the wrong model into the requested folder.
-    """
-    token = (shard or "").strip().lower()
-    if not _SHARD_RE.match(token):
-        raise ValueError(
-            f"{shard!r} is not an Anaplan shard token (expected e.g. 'eu2a', "
-            f"'eu3'; known: {', '.join(KNOWN_SHARDS)}). Pass the bare shard, "
-            f"not a URL or hostname."
-        )
-    return f"https://{token}.app.anaplan.com/"
 
 
 # ============================================================================
@@ -365,86 +341,6 @@ def _export_one_target(browser, download_dir, nav_label, subtab_label, out_filen
         return fail(f"unexpected error: {e}")
 
 
-REQUIRED_ENTRY_KEYS = ("name", "raw_dir", "folder", "shard",
-                       "customer_id", "workspace_id", "model_id")
-
-
-def _resolve_model(model, name=None):
-    """Resolve a models.MODELS shortcut key into a fully merged entry dict.
-
-    Returns a dict (not the old 4-tuple) because an entry now carries the
-    shard, the vault folder and the raw export folder in addition to the three
-    GUIDs — seven fields, four of them opaque GUID strings, is exactly the
-    shape where positional unpacking silently swaps a tenant.
-    """
-    configured = getattr(models, "MODELS", {})
-    if model not in configured:
-        raise ValueError(
-            f"'{model}' is not a configured shortcut in models.MODELS "
-            f"({sorted(configured)}). Raw model_id lookups need a workspace and "
-            f"shard that cannot be safely inferred; add an entry to models.py "
-            f"with folder, shard, raw_dir, customer_id, workspace_id and "
-            f"model_id, then pass its key here."
-        )
-
-    entry = dict(configured[model])
-    missing = [k for k in REQUIRED_ENTRY_KEYS if not entry.get(k)]
-    if missing:
-        raise ValueError(
-            f"models.MODELS['{model}'] is missing {missing}. Every entry must "
-            f"declare its own shard, folder and raw_dir — there is no global "
-            f"default for any of them."
-        )
-
-    app_url_for_shard(entry["shard"])          # fail here, not mid-login
-    entry["display_name"] = name or entry["name"]
-    entry["shortcut"] = model                  # derived, not a required key — for error messages
-    return entry
-
-
-def settings_url(entry):
-    """The model-settings URL for a resolved entry. Single definition: this
-    string was previously duplicated in three functions, so every shard or
-    path change had to be applied three times and kept in sync."""
-    base = app_url_for_shard(entry["shard"]).rstrip("/")
-    return (f"{base}/a/modeling/customers/{entry['customer_id']}"
-            f"/workspaces/{entry['workspace_id']}/models/{entry['model_id']}"
-            f"/model-settings")
-
-
-def default_out_dir(entry, repo_root=REPO_ROOT):
-    """Where this model's CSVs live in the vault. Derived from the entry's
-    folder + raw_dir, NEVER from the display name: the two legitimately differ
-    (a shortcut named 'modela' exports into a folder called 'ModelA 2.0')."""
-    return os.path.join(repo_root, "customers", entry["folder"],
-                        "raw", "models", entry["raw_dir"])
-
-
-def resolve_out_dir(entry, out_dir=None, repo_root=REPO_ROOT):
-    """Resolve the export destination.
-
-    An explicit --out is created if absent (it is routinely a scratch dir).
-    The derived vault path must already exist: creating it would mean a typo in
-    raw_dir silently produces a second, wrong-named folder alongside the real
-    one, and a run that reports success while the wiki still points at the old
-    folder.
-    """
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-        return out_dir
-
-    path = default_out_dir(entry, repo_root)
-    if not os.path.isdir(path):
-        shortcut = entry.get("shortcut", "...")
-        raise ValueError(
-            f"export folder {path!r} does not exist. Check "
-            f"models.MODELS[{shortcut!r}]['raw_dir'] ({entry['raw_dir']!r}) and "
-            f"['folder'] ({entry['folder']!r}) against the vault, or pass "
-            f"--out explicitly for a scratch export."
-        )
-    return path
-
-
 def _build_config(shard):
     """Browser/login config for one shard. `shard` is REQUIRED and comes from
     the resolved model entry — never from a global env var."""
@@ -460,7 +356,7 @@ def _build_config(shard):
 
 def list_available_models(shard):
     """Log in to `shard` and fetch every model visible to this account,
-    independent of models.MODELS. Used to bootstrap a customer's registry
+    independent of registry.MODELS. Used to bootstrap a customer's registry
     entry, so it must not require one."""
     config = _build_config(shard)
     download_dir = tempfile.mkdtemp(prefix="anaplan_list_models_")
@@ -508,16 +404,16 @@ def download_model_exports(model, out_dir=None, headless_download_dir=None, name
     """
     Pure-Selenium fallback: export all 13 model-settings grids through the UI.
     """
-    entry = _resolve_model(model, name=name)
-    model_name = entry["display_name"]
+    entry = registry.resolve_shortcut(model, name=name)
+    model_name = entry.display_name
 
     out_dir = resolve_out_dir(entry, out_dir)
 
     download_dir = headless_download_dir or tempfile.mkdtemp(prefix="anaplan_scrape_")
     own_download_dir = headless_download_dir is None
 
-    config = _build_config(entry["shard"])
-    url = settings_url(entry)
+    config = _build_config(entry.shard)
+    url = entry.settings_url
 
     results = {}
     browser = None
@@ -944,13 +840,13 @@ def download_model_exports_api(model, out_dir=None, name=None, rest_only=False):
 
     Returns dict keyed by output filename -> {"ok", "rows", "path", "error"}.
     """
-    entry = _resolve_model(model, name=name)
-    model_id = entry["model_id"]
-    model_name = entry["display_name"]
+    entry = registry.resolve_shortcut(model, name=name)
+    model_id = entry.model_id
+    model_name = entry.display_name
     out_dir = resolve_out_dir(entry, out_dir)
-    config = _build_config(entry["shard"])
+    config = _build_config(entry.shard)
 
-    url = settings_url(entry)
+    url = entry.settings_url
 
     print(f"\n{'=' * 70}")
     print(f"  Anaplan API model export — {model_name}")
@@ -1038,11 +934,12 @@ _LEGACY_TARGETS = [t for t in EXPORT_TARGETS if t[2] in set(API_UNAVAILABLE)]
 # the registry entry — we ask the iframe itself via window.location.origin and
 # validate the answer (validate_core_origin) before building URLs from it.
 
-# Grammar lives once in _SHARD_RE; reuse its inner pattern here so the two
-# validators can never drift apart. \Z (not $) so a trailing newline is
+# Grammar lives once in registry._SHARD_RE; reuse its inner pattern here so the
+# two validators can never drift apart. \Z (not $) so a trailing newline is
 # rejected too — $ also matches just before a final '\n', which is undesirable
 # in a validator that gates a URL we POST model data to.
-_CORE_ORIGIN_RE = re.compile(rf"^https://{_SHARD_RE.pattern[1:-1]}\.app\.anaplan\.com\Z")
+_CORE_ORIGIN_RE = re.compile(
+    rf"^https://{registry._SHARD_RE.pattern[1:-1]}\.app\.anaplan\.com\Z")
 
 
 def validate_core_origin(origin):
@@ -1225,13 +1122,13 @@ def download_model_exports_full(model, out_dir=None, name=None):
     Any legacy grid that fails the classic-API path falls back to the
     local UI export path for that one grid, so coverage never regresses.
     """
-    entry = _resolve_model(model, name=name)
-    model_id = entry["model_id"]
-    model_name = entry["display_name"]
-    workspace_id = entry["workspace_id"]
+    entry = registry.resolve_shortcut(model, name=name)
+    model_id = entry.model_id
+    model_name = entry.display_name
+    workspace_id = entry.workspace_id
     out_dir = resolve_out_dir(entry, out_dir)
-    config = _build_config(entry["shard"])
-    url = settings_url(entry)
+    config = _build_config(entry.shard)
+    url = entry.settings_url
 
     print(f"\n{'=' * 70}")
     print(f"  Anaplan FULL model export (API-driven) — {model_name}")
@@ -1311,7 +1208,9 @@ def _main(argv=None):
         "model",
         nargs="?",
         default=None,
-        help="Shortcut key from models.MODELS (e.g. 'modela'). Omit when using --list-models.",
+        help="Registry shortcut, either 'customer:model' or a bare model key "
+             "that only one customer uses (e.g. 'customera:modela'). Omit when "
+             "using --list-models.",
     )
     p.add_argument("--name", default=None,
                    help="Display name for console output only. It does NOT select "

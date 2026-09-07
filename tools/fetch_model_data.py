@@ -19,19 +19,17 @@ from urllib.parse import quote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# `models` resolves every credential via `os.getenv(...)` at IMPORT TIME (see
-# the module-level `getenv(...)` calls in models.py), so `.env` must already
-# be loaded into os.environ before `import models` runs below. Normally that
-# happens as a side effect of importing `scraper_ux` (via `scrape_model_data`),
-# but this CLI must not eagerly `import scrape_model_data`/`scraper_ux` at
-# module top - that drags in Selenium at import time, which is slow and a
-# hard dependency this explicitly "no browser" tool must not require just to
-# parse --help. So `load_dotenv()` is called here, directly, ourselves.
-#
-# DO NOT let an import-sorter (isort/ruff/etc.) move `import models` above
-# this call. If it ever does, every value in models.MODELS silently reverts
-# to None instead of raising - this is the exact 2026-08-14 incident where a
-# live request went to ".../models/None/..." instead of failing loudly.
+# load_dotenv() is still needed here, but NOT for the registry any more. The
+# registry (tools/models.py, read via tools/registry.py) holds literals now, so
+# import order can no longer turn every GUID into None - that was the
+# 2026-08-14 incident where a live request went to ".../models/None/..."
+# instead of failing loudly. What still reads the environment is the credential
+# path: scrape_model_data._api_session() -> _anaplan_token() takes
+# ANAPLAN_USERNAME / ANAPLAN_PASSWORD from os.environ, and this CLI must not
+# eagerly `import scrape_model_data`/`scraper_ux` at module top - that drags in
+# Selenium at import time, which is slow and a hard dependency this explicitly
+# "no browser" tool must not require just to parse --help. So load_dotenv() is
+# called here, directly, ourselves.
 try:
     from dotenv import load_dotenv
 except ImportError:  # python-dotenv is optional; --help must not require it.
@@ -41,7 +39,7 @@ except ImportError:  # python-dotenv is optional; --help must not require it.
 load_dotenv()
 
 import anaplan_session
-import models
+import registry
 
 
 @dataclass
@@ -123,47 +121,6 @@ def parse_view_data(data_payload: dict, meta_payload: dict) -> Grid:
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-def resolve_raw_dir(shortcut, models_map, repo_root=REPO_ROOT):
-    """Map a registry shortcut to its vault CSV folder.
-
-    `<repo>/customers/<folder>/raw/models/<raw_dir>`.
-
-    Both keys are required and neither is derivable:
-
-    - `raw_dir`, because shortcut keys are abbreviations the modeller types and
-      drift from the folder name as soon as a model is renamed.
-    - `folder`, because two customers may legitimately hold a model with the
-      same `raw_dir` ("Data Hub" is a near-universal name), so an unscoped path
-      would read one customer's CSVs while reporting the other's.
-
-    Defaulting either one picks a customer at random, so both raise instead.
-    """
-    if shortcut not in models_map:
-        raise ValueError(
-            f"'{shortcut}' is not a configured shortcut. Available: "
-            f"{sorted(models_map)}"
-        )
-    entry = models_map[shortcut]
-    missing = [k for k in ("raw_dir", "folder") if not entry.get(k)]
-    if missing:
-        raise ValueError(
-            f"registry entry '{shortcut}' is missing {missing}. Add the vault "
-            f"folder name(s) for this model, e.g. \"folder\": \"CustomerA\", "
-            f"\"raw_dir\": \"ModelA 2.0\"."
-        )
-    path = os.path.join(repo_root, "customers", entry["folder"],
-                        "raw", "models", entry["raw_dir"])
-    if not os.path.isdir(path):
-        raise ValueError(
-            f"raw_dir {entry['raw_dir']!r} for shortcut '{shortcut}' does not "
-            f"exist at {path}. Check 'folder' and 'raw_dir' in the registry "
-            f"against the vault. Note the vault moved to "
-            f"customers/<folder>/raw/models/ — there is no <repo>/raw/models/ "
-            f"any more."
-        )
-    return path
 
 
 class NameMismatchError(Exception):
@@ -260,29 +217,11 @@ def fetch_view_metadata(session, base, model_id, view_id):
 # believes is complete is the worst outcome for formula validation.
 MAX_CELLS = 50_000
 
-# Engine per model, from CLAUDE.md. Surfaced in the digest because Classic
-# and Polaris differ on sparsity and aggregation, which changes how blanks
-# read.
-#
-# TEMPORARY. Both of the dicts below encode one customer's model layout in a
-# tracked, public file, which is exactly what the customer-first registry
-# exists to stop. Task 7 of the Pass 2 plan deletes both and reads `engine`
-# and `workspace_label` off the resolved registry entry instead. Until then
-# they are placeholder-keyed, so no real shortcut or raw_dir can ever match
-# either dict: `engine` falls through to "unknown" for every real model, and
-# `_DEV_SHORTCUTS` can never contain a real shortcut, so `workspace_label`
-# will read "PRODUCTION" even for a model that is genuinely DEV. The "unknown"
-# engine fails loud; the workspace mislabel fails quiet, but this tool is
-# read-only diagnostics, so it is accepted until Task 7 restores both
-# mappings from the registry.
-_ENGINE_BY_RAW_DIR = {
-    "ModelA 2.0": "Polaris",
-    "ModelB Prod": "Classic",
-}
-
-# Only `modela` sits in a DEV workspace; the rest are production. Placeholder
-# key only -- see the TEMPORARY note above.
-_DEV_SHORTCUTS = {"modela"}
+# `engine` and `workspace_label` used to live in two hardcoded dicts here,
+# which encoded one customer's model layout in a tracked, public file. Both are
+# gone: they are per-model registry fields now, read off the resolved entry in
+# main(). Engine is surfaced in the digest because Classic and Polaris differ
+# on sparsity and aggregation, which changes how blanks read.
 
 
 class GridTooLargeError(Exception):
@@ -650,8 +589,15 @@ def build_arg_parser():
     for name, help_text in (("module", "Fetch a module's default view"),
                             ("list", "Fetch a list's items")):
         p = sub.add_parser(name, help=help_text)
-        p.add_argument("shortcut", help="models.py shortcut, e.g. fsp")
+        p.add_argument("shortcut",
+                       help="Registry shortcut: 'customer:model', or a bare "
+                            "model key that only one customer uses "
+                            "(e.g. customera:modela)")
         p.add_argument("name", help="Module or list name, exactly as in Anaplan")
+        p.add_argument("--customer", default=None,
+                       help="Customer key, to disambiguate a model key that "
+                            "more than one customer uses. Unnecessary when the "
+                            "model key is unique.")
         p.add_argument("--out-dir", required=True,
                        help="REQUIRED. Directory for the full CSV - pass your "
                             "session scratchpad. Never a path inside the repo.")
@@ -704,19 +650,17 @@ def main(argv=None):
         return 2
 
     try:
-        entry = models.MODELS[args.shortcut]
-    except KeyError:
-        print(f"ERROR: unknown shortcut {args.shortcut!r}. Available: "
-              f"{sorted(models.MODELS)}", file=sys.stderr)
+        resolved = registry.resolve_shortcut(args.shortcut, customer=args.customer)
+    except (ValueError, registry.LegacyRegistryError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
-    model_id = entry["model_id"]
-    raw_dir_name = entry.get("raw_dir", "")
+    model_id = resolved.model_id
     meta = {
-        "model_name": raw_dir_name or entry.get("name", args.shortcut),
+        "model_name": resolved.raw_dir or resolved.name,
         "object_name": args.name,
-        "engine": _ENGINE_BY_RAW_DIR.get(raw_dir_name, "unknown"),
-        "workspace_label": "DEV" if args.shortcut in _DEV_SHORTCUTS else "PRODUCTION",
+        "engine": resolved.engine,
+        "workspace_label": resolved.workspace_label,
         "view_id": "",
     }
 
@@ -746,7 +690,7 @@ def main(argv=None):
         if args.command == "module":
             view_id = None
             try:
-                raw_dir = resolve_raw_dir(args.shortcut, models.MODELS)
+                raw_dir = resolved.default_out_dir
                 view_id = find_view_id_offline(
                     os.path.join(raw_dir, "Views.csv"), args.name)
             except ValueError as e:

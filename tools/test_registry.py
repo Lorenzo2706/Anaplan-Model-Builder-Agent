@@ -212,3 +212,138 @@ class TestCheckNotLegacy:
             pass
 
         registry.check_not_legacy(Empty)
+
+
+class TestAppUrlForShard:
+    def test_derives_url_from_shard_token(self):
+        assert registry.app_url_for_shard("eu9z") == "https://eu9z.app.anaplan.com/"
+
+    def test_normalises_case_and_whitespace(self):
+        assert registry.app_url_for_shard("  EU9Z ") == "https://eu9z.app.anaplan.com/"
+
+    @pytest.mark.parametrize("bad", ["", None, "eu9z.app.anaplan.com",
+                                     "https://eu9z.app.anaplan.com/", "prod",
+                                     "eu9z/../evil", "eu 9"])
+    def test_rejects_anything_that_is_not_a_shard_token(self, bad):
+        with pytest.raises(ValueError):
+            registry.app_url_for_shard(bad)
+
+    def test_never_falls_back_to_a_default_shard(self):
+        """The regression this exists to prevent: an unknown shard must not
+        quietly resolve to some default, which logs into the wrong tenant and
+        exports the wrong model into the requested folder."""
+        with pytest.raises(ValueError):
+            registry.app_url_for_shard("nonsense")
+
+
+class TestResolve:
+    def test_resolves_a_composite_key(self):
+        r = registry.resolve("customera:modela", registry.flatten(CUSTOMERS))
+        assert r.model_id == "MODEL-A1"
+        assert r.customer_key == "customera"
+
+    def test_resolves_an_unambiguous_bare_key(self):
+        r = registry.resolve("modela", registry.flatten(CUSTOMERS))
+        assert r.shortcut == "customera:modela"
+
+    def test_ambiguous_bare_key_raises_and_lists_the_candidates(self):
+        with pytest.raises(ValueError) as exc:
+            registry.resolve("datahub", registry.flatten(CUSTOMERS))
+        msg = str(exc.value)
+        assert "customera:datahub" in msg and "customerb:datahub" in msg
+
+    def test_customer_argument_disambiguates_a_colliding_bare_key(self):
+        r = registry.resolve("datahub", registry.flatten(CUSTOMERS),
+                             customer="customerb")
+        assert r.model_id == "MODEL-B1"
+
+    def test_customer_argument_conflicting_with_a_composite_key_raises(self):
+        """`--customer customera modelb:...` is a contradiction, not a
+        precedence question. Silently honouring one of the two is how a
+        deliberate --customer gate gets bypassed."""
+        with pytest.raises(ValueError) as exc:
+            registry.resolve("customera:modela", registry.flatten(CUSTOMERS),
+                             customer="customerb")
+        assert "customera" in str(exc.value) and "customerb" in str(exc.value)
+
+    def test_unknown_key_lists_available_shortcuts(self):
+        with pytest.raises(ValueError) as exc:
+            registry.resolve("nope", registry.flatten(CUSTOMERS))
+        assert "customera:modela" in str(exc.value)
+
+    def test_unknown_customer_lists_available_customers(self):
+        with pytest.raises(ValueError) as exc:
+            registry.resolve("modela", registry.flatten(CUSTOMERS),
+                             customer="nosuch")
+        assert "customera" in str(exc.value)
+
+    def test_display_name_defaults_to_the_model_name(self):
+        r = registry.resolve("customera:modela", registry.flatten(CUSTOMERS))
+        assert r.display_name == "ModelA"
+
+    def test_display_name_override_does_not_touch_anything_else(self):
+        """--name is display-only (spec decision 6). It must not reach the
+        output folder: raw_dir does that."""
+        r = registry.resolve("customera:modela", registry.flatten(CUSTOMERS),
+                             name="Whatever")
+        assert r.display_name == "Whatever"
+        assert r.raw_dir == "ModelA 2.0"
+
+    def test_resolved_model_is_immutable(self):
+        r = registry.resolve("customera:modela", registry.flatten(CUSTOMERS))
+        with pytest.raises(Exception):
+            r.shard = "us9z"
+
+    def test_bad_shard_fails_at_resolve_not_mid_login(self):
+        tree = {"customera": dict(CUSTOMERS["customera"], shard="not-a-shard")}
+        with pytest.raises(ValueError):
+            registry.resolve("customera:modela", registry.flatten(tree))
+
+
+class TestDerivedUrlsAndPaths:
+    def _resolved(self):
+        return registry.resolve("customerb:datahub", registry.flatten(CUSTOMERS))
+
+    def test_app_url_comes_from_the_customers_shard(self):
+        assert self._resolved().app_url == "https://us9z.app.anaplan.com/"
+
+    def test_settings_url_is_built_from_all_three_guids(self):
+        assert self._resolved().settings_url == (
+            "https://us9z.app.anaplan.com/a/modeling/customers/CUST-B"
+            "/workspaces/WS-B1/models/MODEL-B1/model-settings"
+        )
+
+    def test_default_out_dir_is_folder_plus_raw_dir(self):
+        parts = registry.os.path.normpath(self._resolved().default_out_dir).split(registry.os.sep)
+        assert parts[-4:] == ["CustomerB", "raw", "models", "Data Hub"]
+
+    def test_default_out_dir_ignores_the_display_name(self):
+        r = registry.resolve("customera:modela", registry.flatten(CUSTOMERS),
+                             name="Whatever")
+        assert "Whatever" not in r.default_out_dir
+        assert r.default_out_dir.endswith("ModelA 2.0")
+
+    def test_nux_out_dir_is_the_customers_UI_folder(self):
+        parts = registry.os.path.normpath(self._resolved().nux_out_dir).split(registry.os.sep)
+        assert parts[-2:] == ["CustomerB", "UI"]
+
+
+class TestResolveOutDir:
+    def test_explicit_out_dir_is_created_if_absent(self, tmp_path):
+        target = tmp_path / "scratch" / "deeper"
+        got = registry.resolve_out_dir(
+            registry.resolve("customera:modela", registry.flatten(CUSTOMERS)),
+            out_dir=str(target))
+        assert got == str(target)
+        assert target.is_dir()
+
+    def test_derived_vault_path_must_already_exist(self, tmp_path):
+        """Creating it would mean a typo in raw_dir silently produces a second,
+        wrong-named folder beside the real one, and a run that reports success
+        while the wiki still points at the old folder."""
+        flat = registry.flatten(CUSTOMERS)
+        r = registry.resolve("customera:modela", flat)
+        r = registry.dataclasses.replace(r, folder=str(tmp_path / "nope"))
+        with pytest.raises(ValueError) as exc:
+            registry.resolve_out_dir(r)
+        assert "ModelA 2.0" in str(exc.value)

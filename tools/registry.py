@@ -35,7 +35,10 @@ EVERYTHING HERE IS PURE
     not been migrated yet.
 """
 import copy
+import dataclasses
+import os
 import re
+from dataclasses import dataclass
 
 
 # Required on every customer. No defaults: a missing shard or folder cannot be
@@ -164,3 +167,179 @@ def check_not_legacy(models_module):
             "models.py is gitignored, so this migration cannot be done for "
             "you by a commit."
         )
+
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+# Anaplan app shards follow one uniform host pattern, so the URL is DERIVED
+# rather than looked up - onboarding a customer on a new shard must not
+# require a code edit. KNOWN_SHARDS is only a hint list for error messages and
+# for the wizard's menu; it is deliberately NOT a gate, so a shard Anaplan adds
+# tomorrow works today.
+KNOWN_SHARDS = ("eu1a", "eu2a", "eu3", "eu4", "us1a", "us2a", "ca1a", "ap1a")
+
+_SHARD_RE = re.compile(r"^[a-z]{2}\d{1,2}[a-z]?$")
+
+
+def app_url_for_shard(shard):
+    """Return the app-shard base URL for `shard` (e.g. 'eu3').
+
+    Raises ValueError on anything that is not a bare shard token. There is
+    deliberately NO default: the pre-Pass-1 `.get(env, ANAPLAN_URLS[<one
+    shard>])` meant a typo'd or missing shard logged into whichever tenant the
+    default named and exported the wrong model into the requested folder.
+    """
+    token = (shard or "").strip().lower()
+    if not _SHARD_RE.match(token):
+        raise ValueError(
+            f"{shard!r} is not an Anaplan shard token (expected e.g. 'eu2a', "
+            f"'eu3'; known: {', '.join(KNOWN_SHARDS)}). Pass the bare shard, "
+            f"not a URL or hostname."
+        )
+    return f"https://{token}.app.anaplan.com/"
+
+
+@dataclass(frozen=True)
+class ResolvedModel:
+    """One fully resolved model: customer fields merged with model fields.
+
+    Frozen because it is passed through six call sites across three modules
+    and read on both sides of a browser login. Seven of its fields are opaque
+    strings, four of them GUIDs, so an accidental mutation mid-flow would be
+    invisible - it would present as a successful export of the wrong model.
+    """
+    shortcut: str
+    customer_key: str
+    model_key: str
+    name: str
+    display_name: str
+    raw_dir: str
+    folder: str
+    shard: str
+    customer_id: str
+    workspace_id: str
+    model_id: str
+    engine: str = "unknown"
+    workspace_label: str = "PRODUCTION"
+
+    @property
+    def app_url(self):
+        return app_url_for_shard(self.shard)
+
+    @property
+    def settings_url(self):
+        """The model-settings URL. Single definition: this string was once
+        duplicated in three functions, so every shard or path change had to be
+        applied three times and kept in sync."""
+        base = self.app_url.rstrip("/")
+        return (f"{base}/a/modeling/customers/{self.customer_id}"
+                f"/workspaces/{self.workspace_id}/models/{self.model_id}"
+                f"/model-settings")
+
+    @property
+    def default_out_dir(self):
+        """Where this model's CSVs live in the vault. Derived from folder +
+        raw_dir, NEVER from the display name: the two legitimately differ (a
+        shortcut named 'modela' exports into a folder called 'ModelA 2.0')."""
+        return os.path.join(REPO_ROOT, "customers", self.folder,
+                            "raw", "models", self.raw_dir)
+
+    @property
+    def nux_out_dir(self):
+        """Where this customer's NUX Excel reports land (spec decision 12).
+        A peer of raw/, not inside it: raw/ is immutable source material and
+        a NUX report is generated output."""
+        return os.path.join(REPO_ROOT, "customers", self.folder, "UI")
+
+
+_RESOLVED_FIELDS = tuple(f.name for f in dataclasses.fields(ResolvedModel))
+
+
+def resolve(key, flat, customer=None, name=None):
+    """Resolve `key` against a flattened registry into a ResolvedModel.
+
+    `key` is either a composite "customer:model" or a bare model key. A bare
+    key resolves only when it is unique across every customer (see aliases());
+    otherwise this raises and lists the candidates, because picking one is a
+    wrong-tenant operation.
+
+    `customer` disambiguates a bare key. Combining it with a composite key
+    that names a DIFFERENT customer is a contradiction and raises - silently
+    honouring one of the two is how a deliberate --customer gate is bypassed.
+
+    `name` overrides display_name only. It never reaches the output folder.
+    """
+    if not key:
+        raise ValueError("no model key given")
+
+    if ":" in key:
+        ckey, _, mkey = key.partition(":")
+        if customer and customer != ckey:
+            raise ValueError(
+                f"--customer {customer!r} contradicts the customer in "
+                f"{key!r} ({ckey!r}). Pass one or the other, not both."
+            )
+        shortcut = key
+    elif customer:
+        known = sorted({e["customer_key"] for e in flat.values()})
+        if customer not in known:
+            raise ValueError(
+                f"{customer!r} is not a configured customer. Available: "
+                f"{known}"
+            )
+        shortcut = f"{customer}:{key}"
+    else:
+        alias = aliases(flat).get(key)
+        if alias is None:
+            candidates = sorted(s for s, e in flat.items()
+                                if e["model_key"] == key)
+            if candidates:
+                raise ValueError(
+                    f"{key!r} is ambiguous - {len(candidates)} customers "
+                    f"configure a model with that key: {candidates}. Pass the "
+                    f"composite key, or --customer."
+                )
+            raise ValueError(
+                f"'{key}' is not a configured shortcut. Available: "
+                f"{sorted(flat)}. Raw model_id lookups need a workspace, a "
+                f"shard and a customer folder that cannot be safely inferred; "
+                f"add the model to CUSTOMERS in models.py first."
+            )
+        shortcut = alias
+
+    if shortcut not in flat:
+        raise ValueError(
+            f"'{shortcut}' is not a configured shortcut. Available: "
+            f"{sorted(flat)}."
+        )
+
+    entry = flat[shortcut]
+    app_url_for_shard(entry["shard"])          # fail here, not mid-login
+    fields = {k: entry[k] for k in _RESOLVED_FIELDS if k in entry}
+    fields["display_name"] = name or entry["name"]
+    return ResolvedModel(**fields)
+
+
+def resolve_out_dir(resolved, out_dir=None):
+    """Resolve the export destination for a ResolvedModel.
+
+    An explicit --out is created if absent (it is routinely a scratch dir).
+    The derived vault path must ALREADY exist: creating it would mean a typo in
+    raw_dir silently produces a second, wrong-named folder alongside the real
+    one, and a run that reports success while the wiki still points at the old
+    folder.
+    """
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+        return out_dir
+
+    path = resolved.default_out_dir
+    if not os.path.isdir(path):
+        raise ValueError(
+            f"export folder {path!r} does not exist. Check "
+            f"{resolved.shortcut!r}'s 'raw_dir' ({resolved.raw_dir!r}) and "
+            f"'folder' ({resolved.folder!r}) against the vault, or pass --out "
+            f"explicitly for a scratch export."
+        )
+    return path

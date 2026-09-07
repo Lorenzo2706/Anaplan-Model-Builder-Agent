@@ -126,12 +126,19 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def resolve_raw_dir(shortcut, models_map, repo_root=REPO_ROOT):
-    """Map a models.py shortcut to its raw/models/<folder> path.
+    """Map a registry shortcut to its vault CSV folder.
 
-    A dedicated `raw_dir` key is required because the shortcut names do NOT
-    match the folder names: `fsp` -> "FSP 2.0", and `umd` -> "AAC" because UMD
-    is a cost-category acronym (Uren / Materiaal / Diensten Derden), not a
-    model name. See wiki/models/AAC/index.md.
+    `<repo>/customers/<folder>/raw/models/<raw_dir>`.
+
+    Both keys are required and neither is derivable:
+
+    - `raw_dir`, because shortcut keys are abbreviations the modeller types and
+      drift from the folder name as soon as a model is renamed.
+    - `folder`, because two customers may legitimately hold a model with the
+      same `raw_dir` ("Data Hub" is a near-universal name), so an unscoped path
+      would read one customer's CSVs while reporting the other's.
+
+    Defaulting either one picks a customer at random, so both raise instead.
     """
     if shortcut not in models_map:
         raise ValueError(
@@ -139,18 +146,22 @@ def resolve_raw_dir(shortcut, models_map, repo_root=REPO_ROOT):
             f"{sorted(models_map)}"
         )
     entry = models_map[shortcut]
-    raw_dir = entry.get("raw_dir")
-    if not raw_dir:
+    missing = [k for k in ("raw_dir", "folder") if not entry.get(k)]
+    if missing:
         raise ValueError(
-            f"models.MODELS['{shortcut}'] has no 'raw_dir' key. Add the "
-            f"raw/models/ folder name for this model, e.g. "
-            f"\"raw_dir\": \"FSP 2.0\"."
+            f"registry entry '{shortcut}' is missing {missing}. Add the vault "
+            f"folder name(s) for this model, e.g. \"folder\": \"CustomerA\", "
+            f"\"raw_dir\": \"ModelA 2.0\"."
         )
-    path = os.path.join(repo_root, "raw", "models", raw_dir)
+    path = os.path.join(repo_root, "customers", entry["folder"],
+                        "raw", "models", entry["raw_dir"])
     if not os.path.isdir(path):
         raise ValueError(
-            f"raw_dir '{raw_dir}' for shortcut '{shortcut}' does not exist at "
-            f"{path}. Check the folder name in models.py."
+            f"raw_dir {entry['raw_dir']!r} for shortcut '{shortcut}' does not "
+            f"exist at {path}. Check 'folder' and 'raw_dir' in the registry "
+            f"against the vault. Note the vault moved to "
+            f"customers/<folder>/raw/models/ — there is no <repo>/raw/models/ "
+            f"any more."
         )
     return path
 

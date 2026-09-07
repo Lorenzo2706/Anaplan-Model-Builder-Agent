@@ -117,43 +117,71 @@ def test_parse_view_data_normalizes_null_cell_to_none_too():
 
 
 FAKE_MODELS = {
-    "fsp": {"name": "FSP", "raw_dir": "FSP 2.0", "model_id": "M1"},
-    "umd": {"name": "UMD", "raw_dir": "AAC", "model_id": "M2"},
-    "broken": {"name": "Broken", "model_id": "M3"},
+    # Shortcut keys deliberately do NOT match raw_dir: a shortcut is an
+    # abbreviation the modeller types, raw_dir is the vault folder name, and
+    # the two drift apart the moment a model is renamed. No fuzzy match can
+    # bridge them, which is why raw_dir is a required key.
+    "modela": {"name": "ModelA", "raw_dir": "ModelA 2.0",
+               "folder": "CustomerA", "model_id": "M1"},
+    "modelb": {"name": "ModelB", "raw_dir": "ModelB Prod",
+               "folder": "CustomerB", "model_id": "M2"},
+    "broken": {"name": "Broken", "folder": "CustomerA", "model_id": "M3"},
+    "nofolder": {"name": "NoFolder", "raw_dir": "ModelC", "model_id": "M4"},
 }
 
 
 def test_resolve_raw_dir_uses_raw_dir_not_name(tmp_path):
-    (tmp_path / "raw" / "models" / "FSP 2.0").mkdir(parents=True)
-    got = resolve_raw_dir("fsp", FAKE_MODELS, str(tmp_path))
-    assert Path(got).name == "FSP 2.0"
+    (tmp_path / "customers" / "CustomerA" / "raw" / "models" / "ModelA 2.0").mkdir(parents=True)
+    got = resolve_raw_dir("modela", FAKE_MODELS, str(tmp_path))
+    assert Path(got).name == "ModelA 2.0"
 
 
-def test_resolve_raw_dir_handles_umd_to_aac(tmp_path):
-    """umd is a cost-category acronym (Uren/Materiaal/Diensten Derden), not a
-    model name - it points at AAC. No fuzzy match could find this."""
-    (tmp_path / "raw" / "models" / "AAC").mkdir(parents=True)
-    got = resolve_raw_dir("umd", FAKE_MODELS, str(tmp_path))
-    assert Path(got).name == "AAC"
+def test_resolve_raw_dir_is_scoped_by_customer_folder(tmp_path):
+    """The load-bearing assertion of this task. Two customers may legitimately
+    use the same raw_dir name ('Data Hub' is a near-universal model name), so
+    the path MUST include the customer folder or one customer's export silently
+    reads the other's CSVs."""
+    (tmp_path / "customers" / "CustomerB" / "raw" / "models" / "ModelB Prod").mkdir(parents=True)
+    got = resolve_raw_dir("modelb", FAKE_MODELS, str(tmp_path))
+    assert Path(got).parts[-4:] == ("CustomerB", "raw", "models", "ModelB Prod")
+
+
+def test_resolve_raw_dir_never_uses_the_pre_restructure_root(tmp_path):
+    """Regression guard for the bug this task fixes: the vault has no
+    <repo>/raw/models/ any more. If someone reintroduces that path, this fails
+    even though the folder it wants exists."""
+    (tmp_path / "raw" / "models" / "ModelA 2.0").mkdir(parents=True)
+    with pytest.raises(ValueError) as exc:
+        resolve_raw_dir("modela", FAKE_MODELS, str(tmp_path))
+    assert "customers" in str(exc.value)
 
 
 def test_resolve_raw_dir_unknown_shortcut_lists_valid_ones(tmp_path):
     with pytest.raises(ValueError) as exc:
         resolve_raw_dir("nope", FAKE_MODELS, str(tmp_path))
-    assert "fsp" in str(exc.value) and "umd" in str(exc.value)
+    assert "modela" in str(exc.value) and "modelb" in str(exc.value)
 
 
-def test_resolve_raw_dir_missing_key_names_it(tmp_path):
+def test_resolve_raw_dir_missing_raw_dir_key_names_it(tmp_path):
     with pytest.raises(ValueError) as exc:
         resolve_raw_dir("broken", FAKE_MODELS, str(tmp_path))
     assert "raw_dir" in str(exc.value)
 
 
-def test_resolve_raw_dir_missing_folder_errors(tmp_path):
-    (tmp_path / "raw" / "models").mkdir(parents=True)
+def test_resolve_raw_dir_missing_folder_key_names_it(tmp_path):
+    """`folder` is as mandatory as `raw_dir` now. An entry without it has no
+    resolvable location, and defaulting it would pick some customer's vault at
+    random."""
     with pytest.raises(ValueError) as exc:
-        resolve_raw_dir("fsp", FAKE_MODELS, str(tmp_path))
-    assert "FSP 2.0" in str(exc.value)
+        resolve_raw_dir("nofolder", FAKE_MODELS, str(tmp_path))
+    assert "folder" in str(exc.value)
+
+
+def test_resolve_raw_dir_missing_folder_on_disk_errors(tmp_path):
+    (tmp_path / "customers" / "CustomerA" / "raw" / "models").mkdir(parents=True)
+    with pytest.raises(ValueError) as exc:
+        resolve_raw_dir("modela", FAKE_MODELS, str(tmp_path))
+    assert "ModelA 2.0" in str(exc.value)
 
 
 # Row 2 is a SAVED view sharing the module's exact name with a different ID,

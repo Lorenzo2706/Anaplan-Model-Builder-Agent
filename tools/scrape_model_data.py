@@ -120,12 +120,13 @@ from selenium.webdriver.common.by import By
 import scraper_ux
 import registry
 
-# Re-exported so existing importers of these names keep working. The
-# definitions moved to registry.py, which is now the single place that
-# knows the registry's shape.
+# Bound here because this module still calls them by these bare names
+# internally (settings_url's app_url_for_shard(shard) at :349, and
+# resolve_out_dir(entry, out_dir) at :410/:846/:1129) - no external .py
+# importer uses either name. The single definition of each lives in
+# registry.py.
 app_url_for_shard = registry.app_url_for_shard
 resolve_out_dir = registry.resolve_out_dir
-REPO_ROOT = registry.REPO_ROOT
 
 # The 8 legacy-engine grids that the REST API v2 does NOT expose. Default
 # (REST-only) mode skips them and reports them as such; --full retrieves them

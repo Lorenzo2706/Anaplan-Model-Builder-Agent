@@ -366,6 +366,8 @@ class TestResolveOutDir:
         with pytest.raises(ValueError) as exc:
             registry.resolve_out_dir(r)
         assert "ModelA 2.0" in str(exc.value)
+        assert "customera:modela" in str(exc.value)  # names the shortcut, so
+        # a user can grep it in models.py
 
 
 class TestModuleLevelLoad:
@@ -394,13 +396,21 @@ class TestModuleLevelLoad:
         import inspect
         import models
         src = inspect.getsource(models)
-        assert "getenv" not in src, (
+        # Computed outside the assert on purpose: pytest introspects an
+        # `assert "x" in src`-shaped expression on failure and prints a
+        # context window around every match (the whole source under -vv),
+        # which would dump the developer's real customer names, folder
+        # names and GUIDs to the terminal. A bare boolean gives it nothing
+        # to show.
+        has_getenv = "getenv" in src
+        assert not has_getenv, (
             "models.py must hold literal values. Reading the environment at "
             "import time is what caused the models/None incident; the "
             "import-order guard that used to catch it is gone because the "
             "mechanism is supposed to be gone."
         )
-        assert "dotenv" not in src
+        has_dotenv = "dotenv" in src
+        assert not has_dotenv
 
     def test_customer_keys_are_sorted(self, monkeypatch):
         monkeypatch.setattr(registry, "CUSTOMERS", CUSTOMERS)

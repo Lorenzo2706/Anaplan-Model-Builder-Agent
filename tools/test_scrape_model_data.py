@@ -108,9 +108,6 @@ class TestReExportedRegistryNames:
     def test_resolve_out_dir_is_the_registry_one(self):
         assert smd.resolve_out_dir is registry.resolve_out_dir
 
-    def test_repo_root_is_the_registry_one(self):
-        assert smd.REPO_ROOT == registry.REPO_ROOT
-
 
 class TestCoreWebappOrigin:
     def test_accepts_an_anaplan_app_origin(self):

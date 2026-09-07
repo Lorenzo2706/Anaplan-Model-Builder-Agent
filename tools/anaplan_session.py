@@ -19,9 +19,9 @@ READ-ONLY BY CONSTRUCTION
 -------------------------
 This module exposes exactly one HTTP verb: AnaplanSession.get(). There is
 deliberately NO post/put/patch/delete wrapper, and every URL is checked against
-an allowlist. Four of the five shortcuts in models.py resolve to PRODUCTION
-workspaces; adding a write path here must be a deliberate, reviewed act
-rather than a one-line accident.
+an allowlist. Real PRODUCTION Anaplan workspaces are reachable through this
+module, so adding a write path here must be a deliberate, reviewed act rather
+than a one-line accident.
 """
 import json
 import os

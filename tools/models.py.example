@@ -13,9 +13,12 @@ now, so the failure mode is structurally impossible.
 KEEP IT THAT WAY. tools/test_registry.py asserts that this file's source
 contains neither of the two function names involved in that incident - not
 even inside a comment or this docstring - because a plain substring tripwire
-is the only version of that check that cannot itself be fooled. If you need
-to refer to those mechanisms, describe them rather than naming them, as this
-docstring does.
+cannot be fooled by either of those two names appearing literally, however
+they're used. It is not proof against every way of reading the environment
+(`os.environ[...]` or `from os import environ` would still pass it) - it
+exists to catch a repeat of this exact incident, not to police every
+alternative. If you need to refer to those mechanisms, describe them rather
+than naming them, as this docstring does.
 
 SHAPE
 

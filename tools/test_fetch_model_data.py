@@ -531,7 +531,7 @@ def test_row_stats_ignores_non_numeric_text():
 
 
 def test_write_full_csv_writes_labels_and_values(tmp_path):
-    path = write_full_csv(sample_grid(), str(tmp_path), "FSP 2.0",
+    path = write_full_csv(sample_grid(), str(tmp_path), "ModelA 2.0",
                           "REV 01. Revenue Calc", "20260813T142530")
     text = Path(path).read_text(encoding="utf-8-sig")
     assert "Jan 26" in text and "Volume" in text and "100" in text
@@ -539,7 +539,7 @@ def test_write_full_csv_writes_labels_and_values(tmp_path):
 
 
 def test_write_full_csv_filename_is_safe(tmp_path):
-    path = write_full_csv(sample_grid(), str(tmp_path), "FSP 2.0",
+    path = write_full_csv(sample_grid(), str(tmp_path), "ModelA 2.0",
                           'Bad/Name:With*Chars', "20260813T142530")
     assert Path(path).exists()
     for ch in '/\\:*?"<>|':
@@ -549,11 +549,11 @@ def test_write_full_csv_filename_is_safe(tmp_path):
 def test_write_full_csv_handles_non_ascii_labels(tmp_path):
     """Live row coordinates include values like 'Financien' with a diaeresis."""
     grid = replace(sample_grid(), row_labels=[("Financi\u00ebn",)] * 4)
-    path = write_full_csv(grid, str(tmp_path), "FSP 2.0", "M", "20260813T142530")
+    path = write_full_csv(grid, str(tmp_path), "ModelA 2.0", "M", "20260813T142530")
     assert "Financi\u00ebn" in Path(path).read_text(encoding="utf-8-sig")
 
 
-DIGEST_META = {"model_name": "FSP 2.0", "object_name": "REV 01. Revenue Calc",
+DIGEST_META = {"model_name": "ModelA 2.0", "object_name": "REV 01. Revenue Calc",
                "view_id": "102000000025", "workspace_label": "DEV",
                "engine": "Polaris"}
 

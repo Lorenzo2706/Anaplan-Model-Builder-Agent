@@ -58,6 +58,7 @@ def main():
         return 1
 
     tree = {}
+    any_empty = False
     for shortcut, entry in flat.items():
         folder = entry.get("folder")
         if not folder:
@@ -72,9 +73,24 @@ def main():
                 print(f"CONFLICT on {ckey}.{field}: {cust[field]!r} vs "
                       f"{value!r} (from {shortcut!r}). Kept the first; check "
                       f"which is right.", file=sys.stderr)
-        cust["models"][shortcut] = {f: entry.get(f, "") for f in MODEL_FIELDS}
+        model_fields = {}
+        for field in MODEL_FIELDS:
+            value = entry.get(field, "")
+            # Warn HERE, before the user overwrites their only copy of
+            # models.py - flatten()'s own check only fires later, at
+            # `registry` import time, by which point the paste already
+            # happened.
+            if not value:
+                print(f"EMPTY {shortcut}.{field}", file=sys.stderr)
+                any_empty = True
+            model_fields[field] = value
+        cust["models"][shortcut] = model_fields
 
     print("# Review before pasting into tools/models.py.")
+    if any_empty:
+        print("# WARNING: one or more required fields came out empty - see")
+        print("# the EMPTY lines printed to stderr above. Fill every one of")
+        print("# them in by hand before pasting; do not paste this as-is.")
     print("# TODO: add \"engine\": \"Classic\" | \"Polaris\" and, where it")
     print("# applies, \"workspace_label\": \"DEV\" to each model. Neither is")
     print("# inferable from the old shape; customers/registry.md has both.")

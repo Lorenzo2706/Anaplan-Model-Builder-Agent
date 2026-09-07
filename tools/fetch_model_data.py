@@ -66,7 +66,7 @@ class Grid:
 
 
 def _cell(raw):
-    """Verified 2026-08-14 against live FSP 2.0 data: all 2,688 probed cells came
+    """Verified 2026-08-14 against live ModelA 2.0 data: all 2,688 probed cells came
     back as JSON strings, 1,288 of them the empty string ""; null was never
     returned. Anaplan represents a genuinely BLANK cell as "", not null. This
     still defensively treats None and whitespace-only strings as blank -> None
@@ -689,12 +689,16 @@ def main(argv=None):
     try:
         if args.command == "module":
             view_id = None
-            try:
-                raw_dir = resolved.default_out_dir
+            raw_dir = resolved.default_out_dir
+            if not os.path.isdir(raw_dir):
+                print(f"  (offline lookup unavailable: raw_dir "
+                      f"{resolved.raw_dir!r} for shortcut "
+                      f"{resolved.shortcut!r} does not exist at {raw_dir}. "
+                      f"Check 'folder' and 'raw_dir' in the registry against "
+                      f"the vault.)", file=sys.stderr)
+            else:
                 view_id = find_view_id_offline(
                     os.path.join(raw_dir, "Views.csv"), args.name)
-            except ValueError as e:
-                print(f"  (offline lookup unavailable: {e})", file=sys.stderr)
             if not view_id:
                 print("  (resolving view ID via API)", file=sys.stderr)
                 view_id = find_view_id_via_api(session, base, model_id, args.name)

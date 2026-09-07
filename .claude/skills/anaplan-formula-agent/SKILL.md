@@ -137,8 +137,9 @@ once:
 Then:
 
 - **Blanket permission is scoped to that model.** When the conversation moves to
-  a different model, ask again. This is not pedantry: `fsp` is a DEV workspace
-  but `umd`, `mjp`, `old_fsp`, and `datahub` are **production**.
+  a different model, ask again. This is not pedantry: this customer's models mix
+  DEV and PRODUCTION workspaces — see `tools/models.py` (gitignored) or
+  `customers/registry.md` for which is which.
 - **Consent is never written to disk.** Hold it in conversation only.
 - Never fetch before consent. A fetch reads live production data.
 
@@ -151,9 +152,9 @@ Then:
 
 - `--out-dir` is **required** and must be your session scratchpad — never a path
   inside the repo (it is under OneDrive sync). The tool refuses a repo path.
-- Shortcuts: `fsp` → FSP 2.0 (DEV, Polaris), `umd` → **AAC** (prod, Polaris),
-  `mjp` → MJP (prod, Classic), `old_fsp` → Old FSP (prod, Classic),
-  `datahub` → Data Hub 2.0 (prod, Classic).
+- Shortcut keys, engines and DEV/PROD workspaces are **not listed here** — they are
+  per-customer and live in `tools/models.py` (gitignored). Read `MODELS` there, or
+  `customers/registry.md` for the customer/model/engine table.
 - Narrow aggressively. `--page` shrinks the actual fetch; `--line-items` and
   `--periods` shrink the digest.
 - For a list: `python tools/fetch_model_data.py list <shortcut> "<List Name>" --out-dir ...`

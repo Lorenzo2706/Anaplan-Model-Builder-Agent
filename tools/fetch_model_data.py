@@ -184,9 +184,9 @@ def _norm_name(value):
 def find_view_id_offline(views_csv_path, module_name):
     """Look up a module's DEFAULT view ID in an ingested Views.csv.
 
-    Returns None when the file is absent (raw/models/AAC has no Views.csv) or
-    the module is not listed (FSP 2.0's Views.csv covers 125 rows against 141
-    live views) - the caller then falls back to the live API.
+    Returns None when the file is absent (some models have no Views.csv) or
+    the module is not listed (another model's Views.csv covers 125 rows
+    against 141 live views) - the caller then falls back to the live API.
 
     A module's default view has ID == Module ID. Scans ALL matching rows before
     settling, because a saved view with the same name may appear first and its
@@ -212,8 +212,8 @@ def find_view_id_offline(views_csv_path, module_name):
 def find_view_id_via_api(session, base, model_id, module_name):
     """Resolve a module name to its default view ID over the live API.
 
-    Required, not optional: raw/models/AAC has no Views.csv at all, and FSP's
-    CSV is 16 views short of the live model."""
+    Required, not optional: some models have no Views.csv at all, and another
+    model's CSV is 16 views short of the live model."""
     body = session.get(f"{base}/2/0/models/{model_id}/views")
     views = body.get("views") or []
     want = _norm_name(module_name)
@@ -260,15 +260,19 @@ def fetch_view_metadata(session, base, model_id, view_id):
 # believes is complete is the worst outcome for formula validation.
 MAX_CELLS = 50_000
 
-# Engine per model, from CLAUDE.md. Surfaced in the digest because Classic and
-# Polaris differ on sparsity and aggregation, which changes how blanks read.
+# TEMPORARY. Both of these encode one customer's model layout in a tracked,
+# public file, which is exactly what the customer-first registry exists to
+# stop. Task 7 of the Pass 2 plan deletes both and reads `engine` and
+# `workspace_label` off the resolved registry entry instead. Until then they
+# are placeholder-keyed, so a real deployment falls through to "unknown"
+# rather than shipping a customer's model names.
 _ENGINE_BY_RAW_DIR = {
-    "FSP 2.0": "Polaris", "AAC": "Polaris",
-    "MJP": "Classic", "Old FSP": "Classic", "Data Hub 2.0": "Classic",
+    "ModelA 2.0": "Polaris",
+    "ModelB Prod": "Classic",
 }
 
-# Only `fsp` sits in a DEV workspace; the rest are production.
-_DEV_SHORTCUTS = {"fsp"}
+# Only `modela` sits in a DEV workspace; the rest are production.
+_DEV_SHORTCUTS = {"modela"}
 
 
 class GridTooLargeError(Exception):

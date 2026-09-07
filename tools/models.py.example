@@ -10,8 +10,8 @@ from os import getenv
 #     "name": "ModelA",
 #     # Folder under raw/models/ holding this model's CSV export. REQUIRED by
 #     # fetch_model_data.py. It is a separate key because "name" does not always
-#     # match the folder: the `umd` shortcut points at raw/models/AAC (UMD is a
-#     # cost-category acronym, not a model name).
+#     # match the folder: a shortcut named "modela" can point at a folder
+#     # called "ModelA 2.0", and abbreviations rarely match folder names.
 #     "raw_dir": "ModelA",
 #     # Vault folder under customers/ this model belongs to.
 #     "folder": "CustomerA",

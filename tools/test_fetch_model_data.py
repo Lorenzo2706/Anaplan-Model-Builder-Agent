@@ -227,7 +227,7 @@ def test_find_view_id_offline_returns_none_when_absent(tmp_path):
 
 
 def test_find_view_id_offline_returns_none_when_file_missing(tmp_path):
-    """AAC has no Views.csv at all - this must fall through, not crash."""
+    """Some models have no Views.csv at all - this must fall through, not crash."""
     assert find_view_id_offline(str(tmp_path / "Views.csv"), "Anything") is None
 
 
@@ -669,7 +669,7 @@ def test_parses_module_command_with_all_narrowing():
 
 def test_parses_list_command():
     args = build_arg_parser().parse_args(
-        ["list", "umd", "Afdeling", "--out-dir", "/scratch"])
+        ["list", "modelb", "Afdeling", "--out-dir", "/scratch"])
     assert args.command == "list" and args.name == "Afdeling"
 
 

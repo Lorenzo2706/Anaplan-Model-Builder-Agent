@@ -8,3 +8,4 @@ __pycache__/
 /docs/superpowers
 /tools/models.py
 /.superpowers/
+/.claude/agents/

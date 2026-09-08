@@ -63,10 +63,6 @@ for _stream in (sys.stdout, sys.stderr):
 #  STEP 1 — Configuration via interactive prompts
 # ══════════════════════════════════════════════════════════════════════════════
 
-ANAPLAN_URLS = {
-    "eu2a": "https://eu2a.app.anaplan.com/",
-}
-
 # springboard-definition-service (pages/boards) is a single global service,
 # always hosted here regardless of which regional shard the model lives on.
 SDS_HOST = "https://us1a.app.anaplan.com"
@@ -76,7 +72,6 @@ SDS_HOST = "https://us1a.app.anaplan.com"
 # in .env falls back to being prompted for interactively.
 DEFAULTS = {
     "username":       os.getenv("ANAPLAN_USERNAME", ""),
-    "environment":    os.getenv("ANAPLAN_ENVIRONMENT", "eu2a"),
     "use_sso":        os.getenv("ANAPLAN_USE_SSO", "false").strip().lower() in ("1", "true", "yes"),
     "output_folder":  os.getenv("ANAPLAN_OUTPUT_FOLDER", ""),
 }
@@ -154,31 +149,41 @@ def _collect_config() -> dict:
     print("Answer the questions below. Press Enter to accept the default value.")
     print()
 
-    # ── Environment ───────────────────────────────────────────────────────────
+    # ── Customer ──────────────────────────────────────────────────────────────
+    # This replaces the old environment/shard question. The shard is a property
+    # of the customer, so asking for it separately asks the modeller to know
+    # something the registry already records - and the old menu hardcoded one
+    # shard with a silent fallback for anything else.
     _separator()
-    print("STEP 1 of 4 — Anaplan environment")
+    print("STEP 1 of 4 — Customer")
     _separator()
-    url_keys  = list(ANAPLAN_URLS.keys())
-    url_vals  = list(ANAPLAN_URLS.values())
-    default_env_idx = url_keys.index(DEFAULTS["environment"]) if DEFAULTS["environment"] in url_keys else 0
-    print("\nWhich Anaplan environment do you use?")
-    for i, (k, v) in enumerate(ANAPLAN_URLS.items()):
-        marker = " ← default" if i == default_env_idx else ""
-        print(f"  [{i+1}] {k}  →  {v}{marker}")
+    customers = registry.customer_keys()
+    if not customers:
+        print("\nNo customers are configured in tools/models.py. Add a "
+              "CUSTOMERS entry (see tools/models.py.example) and re-run.")
+        sys.exit(1)
+
+    print("\nWhich customer are you scraping?")
+    for i, ckey in enumerate(customers, 1):
+        cust = registry.CUSTOMERS[ckey]
+        print(f"  [{i}] {cust['name']}  ({ckey}, shard {cust['shard']})")
     while True:
-        raw = input(f"\nChoose an option [default={default_env_idx+1}]: ").strip()
+        raw = input("\nChoose an option [default=1]: ").strip()
         if not raw:
-            idx = default_env_idx
+            idx = 0
             break
         try:
             idx = int(raw) - 1
-            if 0 <= idx < len(url_keys):
+            if 0 <= idx < len(customers):
                 break
         except ValueError:
             pass
         print("  Invalid choice, please try again.")
-    main_url = url_vals[idx]
-    print(f"  ✓ Environment: {main_url}\n")
+
+    customer_key = customers[idx]
+    customer = registry.CUSTOMERS[customer_key]
+    main_url = registry.app_url_for_shard(customer["shard"])
+    print(f"  ✓ Customer: {customer['name']}  →  {main_url}\n")
 
     # ── Credentials ───────────────────────────────────────────────────────────
     _separator()
@@ -219,7 +224,7 @@ def _collect_config() -> dict:
     _separator()
     print("STEP 4 of 4 — Confirm")
     _separator()
-    print(f"\n  Environment : {main_url}")
+    print(f"\n  Customer    : {customer['name']}  ({main_url})")
     print(f"  User        : {username}")
     print(f"  SSO         : {'yes' if use_sso else 'no'}")
     print(f"  Save to     : {output_folder}")
@@ -231,6 +236,8 @@ def _collect_config() -> dict:
 
     return {
         "main_url":       main_url,
+        "customer_key":   customer_key,
+        "folder":         customer["folder"],
         "username":       username,
         "password":       password,
         "use_basic_auth": not use_sso,
@@ -445,22 +452,38 @@ def login(browser: webdriver.Remote, config: dict):
 #  Model selection
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _models_for_customer(customer_key):
+    """Registry entries belonging to `customer_key` only.
+
+    An unknown key returns {} rather than everything. Failing open would
+    offer one customer's models under another customer's login - a
+    wrong-tenant scrape that looks like a successful one.
+    """
+    return {shortcut: entry for shortcut, entry in registry.MODELS.items()
+            if entry["customer_key"] == customer_key}
+
+
 def _select_model(browser: webdriver.Remote, config: dict) -> tuple[str, str, str, str]:
     """
     Offers configured shortcuts from the registry first, falling back to the
     live API browser if none are configured or the user wants to browse.
     Returns (model_id, model_name, workspace_guid, customer_id).
     """
-    configured_models = registry.MODELS
+    configured_models = _models_for_customer(config["customer_key"])
     shortcuts = {
         key: m for key, m in configured_models.items()
         if m.get("customer_id") and m.get("workspace_id") and m.get("model_id")
     }
     if not shortcuts:
+        print(f"\n  ! No complete registry entries (customer_id, workspace_id "
+              f"and model_id) were found for customer "
+              f"{config['customer_key']!r}.\n"
+              f"  The list that follows is ACCOUNT-WIDE, NOT filtered to that "
+              f"customer - check the workspace before selecting.\n")
         return _choose_model_from_api(browser, config)
 
     _separator()
-    print("MODEL SELECTION")
+    print(f"MODEL SELECTION — {config['customer_key']}")
     _separator()
     keys = list(shortcuts.keys())
     for i, key in enumerate(keys, 1):

@@ -769,3 +769,51 @@ def test_out_dir_guard_allows_sibling_directory_sharing_prefix():
 def test_out_dir_guard_allows_genuinely_outside_path(tmp_path):
     with pytest.raises(_OpenSessionCalled):
         main(["module", SHORTCUT, "X", "--out-dir", str(tmp_path)])
+
+
+class TestEngineComesFromTheRegistry:
+    """The engine label drives Classic-vs-Polaris formula reasoning
+    downstream, so a wrong one is a correctness hazard, not a cosmetic bug. It
+    used to come from a folder-name -> engine dict hardcoded in this tracked
+    file, which was one customer's layout and silently wrong for every other
+    customer."""
+
+    TREE = {
+        "customera": {
+            "name": "CustomerA", "shard": "eu9z", "folder": "CustomerA",
+            "customer_id": "CUST-A",
+            "models": {
+                "polaris": {"name": "P", "raw_dir": "P", "workspace_id": "W",
+                            "model_id": "M1", "engine": "Polaris",
+                            "workspace_label": "DEV"},
+                "classic": {"name": "C", "raw_dir": "C", "workspace_id": "W",
+                            "model_id": "M2", "engine": "Classic"},
+                "silent": {"name": "S", "raw_dir": "S", "workspace_id": "W",
+                           "model_id": "M3"},
+            },
+        },
+    }
+
+    def _resolve(self, key):
+        import registry
+        return registry.resolve(key, registry.flatten(self.TREE))
+
+    def test_engine_is_read_from_the_entry(self):
+        assert self._resolve("customera:polaris").engine == "Polaris"
+        assert self._resolve("customera:classic").engine == "Classic"
+
+    def test_unmarked_model_reports_unknown_not_a_guessed_engine(self):
+        assert self._resolve("customera:silent").engine == "unknown"
+
+    def test_workspace_label_is_read_from_the_entry(self):
+        assert self._resolve("customera:polaris").workspace_label == "DEV"
+
+    def test_workspace_label_defaults_to_production(self):
+        assert self._resolve("customera:classic").workspace_label == "PRODUCTION"
+
+    def test_the_hardcoded_dicts_are_gone(self):
+        """Guard against reintroduction. Either constant coming back means one
+        customer's layout is back in a tracked public file."""
+        import fetch_model_data
+        assert not hasattr(fetch_model_data, "_ENGINE_BY_RAW_DIR")
+        assert not hasattr(fetch_model_data, "_DEV_SHORTCUTS")

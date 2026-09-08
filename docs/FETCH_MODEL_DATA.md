@@ -118,14 +118,34 @@ real data instead of reasoning purely from structure.
 ## Usage
 
     python tools/fetch_model_data.py module <shortcut> "<Module Name>" --out-dir DIR \
-        [--page "Dim:Item,Dim2:Item2"] [--line-items "A,B"] \
+        [--customer CUSTOMER] [--page "Dim:Item,Dim2:Item2"] [--line-items "A,B"] \
         [--periods "Jan 26:Mar 26"] [--sample N]
 
-    python tools/fetch_model_data.py list <shortcut> "<List Name>" --out-dir DIR [--sample N]
+    python tools/fetch_model_data.py list <shortcut> "<List Name>" --out-dir DIR \
+        [--customer CUSTOMER] [--sample N]
 
 `--out-dir` is **required** and must be outside the repository. The tool refuses
 a path inside the repo: this vault lives under OneDrive sync and must never hold
 client cell data.
+
+`<shortcut>` is a registry key: either a composite `customer:model` (e.g.
+`customera:modela`), or a bare model key when that key is unique across every
+configured customer. `--customer` is an **optional disambiguator** — pass it
+when a bare model key is used by more than one customer, or to catch a
+copy-paste mistake (a `--customer` that contradicts the customer half of a
+composite `shortcut` raises rather than silently picking one). It is optional
+here because this tool is read-only; `tools/scrape_model_data.py` *requires*
+`--customer` instead, because that tool writes into
+`customers/<folder>/raw/models/` and a wrong-customer write is the more
+expensive mistake.
+
+Every model's **`engine`** (Classic/Polaris) and **`workspace_label`**
+(dev/production) are registry facts, read off the resolved model — never
+guessed from the shortcut, folder, or model name — and are surfaced in the
+digest's `MODEL` line. A model with no `engine` configured reports
+`engine=unknown`; the tool never defaults an unmarked model to either engine,
+because a wrong engine label is a formula-correctness hazard, not a cosmetic
+one (see `CLAUDE.md` § Anaplan-specific guidance on Classic vs Polaris).
 
 ## Narrowing: what shrinks the fetch vs the digest
 
@@ -225,25 +245,32 @@ exactly one token refresh, then gives up.
 > cookies with 401. That transport died around 2026-08-07; the URL allowlist
 > rejects app-shard URLs so the mistake fails loudly.
 
-**`.env` must be loaded before `models` is imported.** `tools/models.py`
-resolves every credential via `os.getenv(...)` **eagerly at import time**, but
-`load_dotenv()` historically only ever ran as a side effect of importing
-`scraper_ux`. `tools/fetch_model_data.py` calls `load_dotenv()` explicitly
-*before* `import models` for exactly this reason — this ordering is a real bug
-found and fixed during the 2026-08-14 live smoke test. If an import-sorting
-tool (isort, ruff, etc.) ever reorders those two lines, every value in
-`models.MODELS` silently reverts to `None` instead of raising, and a live
-request goes to a URL like `.../models/None/...`. Keep `load_dotenv()` textually
-above `import models` in this file.
+**`tools/models.py` is pure data now — no load-order hazard.** It holds one
+`CUSTOMERS` dict of literal values (shard, folder, workspace/model GUIDs, and
+per-model `engine`/`workspace_label`), with no `os.getenv(...)` calls and no
+other environment lookups at all. `tools/registry.py` reads it, flattens the
+customer tree into per-model entries, and is what every consumer (including
+this tool) imports — never `models` directly. `tools/fetch_model_data.py`
+still calls `load_dotenv()` before doing anything else, but only for the
+credential path (`ANAPLAN_USERNAME`/`ANAPLAN_PASSWORD`, read later by
+`scrape_model_data._anaplan_token()`); it no longer has anything to do with
+resolving a model.
+
+If `tools/models.py` is still the pre-Pass-2 flat `MODELS` shape,
+`tools/registry.py` raises a named `registry.LegacyRegistryError` at import
+time, with the migration steps in the message — it does **not** silently fall
+back to an empty registry or resolve a shortcut to `None`.
 
 ## Read-only guarantee
 
 `tools/anaplan_session.py` exposes exactly one HTTP verb, `get`. There is no
 `post`/`put`/`patch`/`delete` wrapper, every URL is checked against an
 allowlist pinned to `https://api.anaplan.com`, and
-`test_session_has_no_write_methods` fails if one is added. Four of the five
-configured `models.py` shortcuts resolve to **production** workspaces; only
-one points at a dev workspace.
+`test_session_has_no_write_methods` fails if one is added. Whether a given
+model points at a production or dev workspace is a **per-model** registry
+fact, not something this tool infers: each model entry may declare its own
+`workspace_label`, and an entry that omits it defaults to `PRODUCTION` —
+never guessed from the shortcut name or folder.
 
 ## Data handling rules
 

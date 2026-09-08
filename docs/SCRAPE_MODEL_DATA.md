@@ -24,16 +24,22 @@ Four modes:
   export path, useful for debugging or as a fallback if the API path changes.
 
 ```powershell
-# For a model already registered in models.py, omit --out entirely — the
-# output folder is derived from that entry's own folder + raw_dir.
-python tools/scrape_model_data.py modela              # 7 fast files
-python tools/scrape_model_data.py modela --full       # all 15 files
-python tools/scrape_model_data.py modela --rest-only  # 5 files, no browser
-python tools/scrape_model_data.py modela --ui-only    # pure UI fallback
+# --customer is required — this tool writes into customers/<folder>/raw/models/,
+# so the customer is never inferred. For a model already registered in
+# models.py, omit --out entirely — the output folder is derived from that
+# entry's own folder + raw_dir.
+python tools/scrape_model_data.py --customer customera modela              # 7 fast files
+python tools/scrape_model_data.py --customer customera modela --full       # all 15 files
+python tools/scrape_model_data.py --customer customera modela --rest-only  # 5 files, no browser
+python tools/scrape_model_data.py --customer customera modela --ui-only    # pure UI fallback
 
 # --out is for a scratch export only (e.g. a temp dir to diff before
 # promoting into the vault) — it is created if missing.
-python tools/scrape_model_data.py modela --out "C:/temp/probe"
+python tools/scrape_model_data.py --customer customera modela --out "C:/temp/probe"
+
+# A composite shortcut ("customer:model") satisfies the --customer requirement
+# on its own, without the separate flag:
+python tools/scrape_model_data.py customera:modela
 ```
 
 > [!important] Omitting `--out` is the safe default for a registered model.
@@ -189,17 +195,33 @@ Anaplan UI:
 python tools/scrape_model_data.py --list-models --shard eu3
 ```
 
-`--shard` is required here: every other mode reads its shard from the model's
-own `models.py` registry entry, but `--list-models` runs *before* that entry
-exists — there is nothing to read a shard from, so it must be told explicitly
-which shard to log into (e.g. `eu2a`, `eu3`, `eu4`, `eu9`). Omitting it exits
-non-zero rather than guessing a default shard.
+`--list-models` needs **exactly one** of `--shard` or `--customer` — never both,
+never neither. Use `--shard` (e.g. `eu2a`, `eu3`, `eu4`, `eu9`) for a customer not
+yet in the registry: every other mode reads its shard from the model's own
+`models.py` registry entry, but here there is nothing to read one from yet, so it
+must be told explicitly. Once the customer already has at least one model
+configured, pass `--customer <key>` instead — it reads the shard off that
+existing entry:
+
+```powershell
+python tools/scrape_model_data.py --list-models --customer customera
+```
 
 Logs in, calls the same `springboard-platform-gateway-service/models` API the
 interactive `scraper_ux.py` wizard uses for "Browse all models…", and prints
 every model visible to this account as JSON (`model_name`, `model_id`,
 `workspace_name`, `workspace_id`, `customer_id`) — no `models.py` shortcut
-required. Confirm the right entry with the user, then add it to `.env`/
+required. Add `--emit-config` to print a paste-ready `CUSTOMERS` block instead
+of raw JSON — it slugifies each model's name into a model key, pre-fills
+`raw_dir` with the model name flagged `TODO` (the API cannot know the vault
+folder name), and declares the customer's shard/customer_id once rather than
+repeating them per model:
+
+```powershell
+python tools/scrape_model_data.py --list-models --customer customera --emit-config
+```
+
+Confirm the right entry with the user, then add it to `.env`/
 `models.py` (mirror the example entry in `tools/models.py.example`) before
 scraping. `tools/models.py` itself is gitignored — like `.env`, it holds your
 real shortcuts locally and never reaches git; `tools/models.py.example` is
@@ -212,8 +234,8 @@ the tracked template to copy from on a fresh clone.
 - **Complete model export** → `--full` (all 15, one login). Recommended default
   for onboarding/refresh.
 - **Pure UI export / debugging a single grid in isolation** →
-  `python tools/scrape_model_data.py <shortcut> --ui-only` (see below). Still
-  useful as the fallback path `--full` invokes automatically.
+  `python tools/scrape_model_data.py --customer <key> <shortcut> --ui-only`
+  (see below). Still useful as the fallback path `--full` invokes automatically.
 
 Prerequisites: `.env` filled in, a `models.py` shortcut, Edge installed, and
 `pip install requests selenium openpyxl webdriver-manager python-dotenv`.
@@ -222,8 +244,8 @@ Prerequisites: `.env` filled in, a `models.py` shortcut, Edge installed, and
 
 ## Pure-UI fallback: `--ui-only`
 
-`python tools/scrape_model_data.py <shortcut> --ui-only` runs the original,
-fully UI-driven exporter from the merged script. It automates the manual
+`python tools/scrape_model_data.py --customer <key> <shortcut> --ui-only` runs
+the original, fully UI-driven exporter from the merged script. It automates the manual
 "export the 13 blueprint CSVs from the Anaplan UI" step by navigating the
 model-settings Dojo app grid-by-grid. Use it to debug one grid in isolation, or
 as a full pure-UI fallback if the API-driven approach ever breaks against a
@@ -254,10 +276,10 @@ Roles Actions.csv
 
 ```powershell
 # Registered model: omit --out, the folder is derived from the registry entry
-python tools/scrape_model_data.py modela --ui-only
+python tools/scrape_model_data.py --customer customera modela --ui-only
 
 # Export into a scratch dir (e.g. to diff before promoting into the vault)
-python tools/scrape_model_data.py modela --out "C:/temp/probe" --ui-only
+python tools/scrape_model_data.py --customer customera modela --out "C:/temp/probe" --ui-only
 ```
 
 As a library:
@@ -281,7 +303,7 @@ step is needed unless SSO is enabled. It prints a per-grid ✅/✗ summary and a
    workspaces, and possibly its own Anaplan shard, so nothing here is global.
 2. Mirror the example entry in `models.py` with `folder`, `raw_dir`, `shard`,
    `customer_id`, `workspace_id`, `model_id`, then call
-   `python tools/scrape_model_data.py <prefix> --ui-only` — the output folder
+   `python tools/scrape_model_data.py --customer <customer-key> <prefix> --ui-only` — the output folder
    is derived from the entry's `folder` + `raw_dir`, so no `--out` is needed
    once the entry exists (and that folder must already exist in the vault; see
    the callout above).

@@ -125,14 +125,16 @@ to Phase 1 with the provided paths.
      ```powershell
      python tools/scrape_model_data.py --list-models --shard eu3
      ```
-     `--shard` is required here — every other mode reads its shard from the model's own
-     `models.py` registry entry, but `--list-models` runs before that entry exists, so it has
-     no entry to infer a shard from and must be told explicitly (e.g. `eu2a`, `eu3`, `eu4`,
-     `eu9`). This logs in and calls the live Anaplan model-list API directly — no `models.py`
-     shortcut needed for this step. It prints JSON: `model_name`, `model_id`,
-     `workspace_name`, `workspace_id`, `customer_id` for every model visible to this account.
-     Filter to candidates matching the requested name and **show them to the user for
-     explicit confirmation** — the same model name can exist in more than one workspace.
+     `--list-models` needs exactly one of `--shard` or `--customer`, never both, never neither.
+     Use `--shard` (e.g. `eu2a`, `eu3`, `eu4`, `eu9`) for a customer with no registry entry at
+     all yet; if the customer is already registered and only this particular model is new, pass
+     `--customer <key>` instead — it reads the shard off that customer's existing entry. This
+     logs in and calls the live Anaplan model-list API directly — no `models.py` shortcut needed
+     for this step. It prints JSON: `model_name`, `model_id`, `workspace_name`, `workspace_id`,
+     `customer_id` for every model visible to this account (add `--emit-config` to print a
+     paste-ready `CUSTOMERS` block instead of raw JSON). Filter to candidates matching the
+     requested name and **show them to the user for explicit confirmation** — the same model
+     name can exist in more than one workspace.
    - Once confirmed, add `<PREFIX>_MODEL_ID=<model_id>` to `.env` (reuse a shared workspace
      var if one already exists for this tenant/workspace; otherwise ask the user what to call
      the new one) and mirror the example entry in `tools/models.py` with `customer_id`,
@@ -162,8 +164,12 @@ the time you want to diff.
 ## Phase 2B — Run the scraper
 
 ```powershell
-python tools/scrape_model_data.py <shortcut>
+python tools/scrape_model_data.py --customer <customer-key> <shortcut>
 ```
+
+`--customer` is required — this tool writes into `customers/<folder>/raw/models/`, so the
+customer is never inferred. A composite shortcut (`<customer-key>:<shortcut>`) satisfies this
+on its own, without the separate flag.
 
 Omit `--out` for a registered model — that is now the safe default. The output folder is
 derived from the shortcut's own `models.py` entry (`folder` + `raw_dir`), which must already

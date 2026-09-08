@@ -90,16 +90,20 @@ the safe default. `--name` only relabels console output, it never selects a
 folder. Pass `--out` only for a scratch export (e.g. a temp dir to diff before
 promoting into the vault) or when the model has no registry entry yet.
 
-    python tools/scrape_model_data.py modela                              # 7 fast files
-    python tools/scrape_model_data.py modela --full                       # all 15 files
-    python tools/scrape_model_data.py modela --ui-only                    # pure UI fallback
-    python tools/scrape_model_data.py modela --out "C:/temp/probe"        # scratch export
+    python tools/scrape_model_data.py --customer customera modela             # 7 fast files
+    python tools/scrape_model_data.py --customer customera modela --full     # all 15 files
+    python tools/scrape_model_data.py --customer customera modela --ui-only  # pure UI fallback
+    python tools/scrape_model_data.py customera:modela --out "C:/temp/probe" # scratch export
+
+`--customer` is required (or pass the composite key, e.g. 'customera:modela')
+— this tool writes into customers/<folder>/raw/models/, so the customer is
+never inferred.
 
 As a library:
 
     from scrape_model_data import download_model_exports_api, download_model_exports_full
-    download_model_exports_full("modela")                        # default: registry-derived out_dir
-    download_model_exports_full("modela", out_dir=r"C:/temp/probe")  # scratch export
+    download_model_exports_full("customera:modela")                        # default: registry-derived out_dir
+    download_model_exports_full("customera:modela", out_dir=r"C:/temp/probe")  # scratch export
 """
 
 import argparse
@@ -399,6 +403,58 @@ def list_available_models(shard):
             except Exception:
                 pass
         shutil.rmtree(download_dir, ignore_errors=True)
+
+
+def emit_config(found, customer_key, shard):
+    """Render `list_available_models()` output as a paste-ready CUSTOMERS block.
+
+    Closes the onboarding loop: --list-models otherwise prints raw JSON that
+    has to be hand-shaped into a registry entry, which means retyping
+    30-character GUIDs - exactly the transcription error a registry exists to
+    make impossible.
+
+    `raw_dir` is pre-filled with the model name and flagged TODO. The API
+    cannot know the vault folder name, and a flagged guess the user was told
+    to check beats a blank that fails flatten() with a vaguer message.
+    """
+    customer_ids = {m.get("customer_id") for m in found if m.get("customer_id")}
+    if len(customer_ids) > 1:
+        raise ValueError(
+            f"the listed models span {len(customer_ids)} tenants "
+            f"({sorted(customer_ids)}). One CUSTOMERS entry is one tenant, so "
+            f"emit one block per tenant - filter the JSON first rather than "
+            f"merging them."
+        )
+
+    def slug(value):
+        return re.sub(r"[^a-z0-9]+", "_", (value or "").lower()).strip("_") or "model"
+
+    lines = [
+        "# Paste into CUSTOMERS in tools/models.py, then:",
+        "#   - set 'folder' to this customer's folder under customers/",
+        "#   - check every 'raw_dir' against the vault folder names",
+        "#   - add 'engine': 'Classic' | 'Polaris' per model",
+        "#   - add 'workspace_label': 'DEV' where it is not production",
+        "CUSTOMERS = {",
+        f"    {customer_key!r}: {{",
+        f"        'name': {customer_key.title()!r},",
+        f"        'shard': {shard!r},",
+        f"        'folder': 'TODO-folder-under-customers',",
+        f"        'customer_id': {(sorted(customer_ids) or [''])[0]!r},",
+        "        'models': {",
+    ]
+    for m in found:
+        lines += [
+            f"            {slug(m.get('model_name'))!r}: {{",
+            f"                'name': {m.get('model_name') or ''!r},",
+            f"                'raw_dir': {m.get('model_name') or ''!r},  # TODO check against the vault folder",
+            f"                'workspace_id': {m.get('workspace_id') or ''!r},",
+            f"                'model_id': {m.get('model_id') or ''!r},",
+            f"                # 'engine': 'Classic',",
+            "            },",
+        ]
+    lines += ["        },", "    },", "}"]
+    return "\n".join(lines)
 
 
 def download_model_exports(model, out_dir=None, headless_download_dir=None, name=None):
@@ -1194,28 +1250,33 @@ def download_model_exports_full(model, out_dir=None, name=None):
 #  CLI
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _main(argv=None):
+def _build_arg_parser():
     p = argparse.ArgumentParser(
         description="API-driven Anaplan model export. Default mode produces 7 "
                     "fast files: 5 over the REST API v2 (HTTP) plus Modules and "
                     "General Lists via the Selenium model-settings UI export (the "
                     "REST API delivers those two too sparse to use). --full "
                     "additionally exports the 8 legacy-engine files (Line Item "
-                    "Subsets, Time Ranges, Source Models, Roles×5) over the "
-                    "classic core-webapp API — a complete 15-file export in one "
+                    "Subsets, Time Ranges, Source Models, Roles x5) over the "
+                    "classic core-webapp API - a complete 15-file export in one "
                     "browser login. Use --ui-only for the original full "
                     "Selenium UI export path.")
     p.add_argument(
         "model",
         nargs="?",
         default=None,
-        help="Registry shortcut, either 'customer:model' or a bare model key "
-             "that only one customer uses (e.g. 'customera:modela'). Omit when "
-             "using --list-models.",
+        help="Model key from the registry, either bare ('modela') or "
+             "composite ('customera:modela'). Omit with --list-models.",
     )
+    p.add_argument("--customer", default=None,
+                   help="Customer key from CUSTOMERS in models.py. REQUIRED: "
+                        "this tool writes into customers/<folder>/raw/models/, "
+                        "so the customer is never inferred. With "
+                        "--list-models it supplies the shard instead of "
+                        "--shard.")
     p.add_argument("--name", default=None,
                    help="Display name for console output only. It does NOT select "
-                        "the output folder — that comes from the entry's folder + "
+                        "the output folder - that comes from the entry's folder + "
                         "raw_dir (or --out).")
     p.add_argument("--out", default=None, help="Output directory for the CSV files.")
     p.add_argument("--full", action="store_true",
@@ -1230,31 +1291,67 @@ def _main(argv=None):
     p.add_argument("--list-models", action="store_true",
                    help="Log in, fetch every model visible to this account, print JSON, and exit.")
     p.add_argument("--shard", default=None,
-                   help="Anaplan shard to log into for --list-models (e.g. eu3). "
-                        "Required with --list-models, which has no registry entry "
-                        "to read a shard from.")
+                   help="Anaplan shard to log into for --list-models (e.g. eu3), "
+                        "for a customer not yet in the registry. Use --customer "
+                        "instead once they are.")
+    p.add_argument("--emit-config", action="store_true",
+                   help="With --list-models, print a paste-ready CUSTOMERS "
+                        "block instead of raw JSON.")
+    return p
+
+
+def _main(argv=None):
+    p = _build_arg_parser()
     args = p.parse_args(argv)
 
+    if args.emit_config and not args.list_models:
+        p.error("--emit-config applies only to --list-models")
+
     if args.list_models:
-        if not args.shard:
-            p.error("--list-models requires --shard (e.g. --shard eu3): there is "
-                    "no registry entry to infer the shard from")
+        # Exactly one shard source. Accepting both would mean silently
+        # preferring one, and a --customer whose shard differs from --shard is
+        # a contradiction, not a precedence question.
+        if bool(args.shard) == bool(args.customer):
+            p.error("--list-models needs exactly one of --shard (e.g. "
+                    "--shard eu3, for a customer not yet in the registry) or "
+                    "--customer (e.g. --customer customera)")
+
+        shard = args.shard
+        if args.customer:
+            try:
+                shard = registry.CUSTOMERS[args.customer]["shard"]
+            except KeyError:
+                p.error(f"{args.customer!r} is not a configured customer. "
+                        f"Available: {registry.customer_keys()}")
+
         # The browser/login helpers underneath print progress banners with
         # print(), i.e. to stdout. --list-models is machine-read (its whole
-        # purpose is `... > models.json`), so keep stdout pure JSON and send
-        # the human-facing chatter to stderr, where it stays visible on a
+        # purpose is `... > models.json`), so keep stdout pure and send the
+        # human-facing chatter to stderr, where it stays visible on a
         # terminal but never lands in a redirected file.
         with contextlib.redirect_stdout(sys.stderr):
-            found = list_available_models(args.shard)
-        print(json.dumps(found, indent=2))
+            found = list_available_models(shard)
+
+        if args.emit_config:
+            print(emit_config(found,
+                              customer_key=args.customer or "customera",
+                              shard=shard))
+        else:
+            print(json.dumps(found, indent=2))
         sys.exit(0)
 
     if not args.model:
         p.error("model is required unless --list-models is passed")
 
-    if args.shard and not args.list_models:
+    if not args.customer and ":" not in args.model:
+        p.error("--customer is required (e.g. --customer customera), or pass "
+                "a composite model key such as 'customera:modela'. This tool "
+                "writes into customers/<folder>/raw/models/, so the customer "
+                "is never inferred.")
+
+    if args.shard:
         p.error("--shard applies only to --list-models; a model's shard comes "
-                "from its registry entry")
+                "from its customer's registry entry")
 
     if args.ui_only:
         results = download_model_exports(args.model, out_dir=args.out, name=args.name)

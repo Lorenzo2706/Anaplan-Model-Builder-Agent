@@ -383,3 +383,113 @@ class TestLineItemHeaderAndRowsStayAligned:
         cell = dict(zip(header, rows[0]))
         for col in ("Populated Cell Count", "Memory Used", "Calculation Complexity"):
             assert cell[col] == "", f"{col} is not in the REST payload"
+
+
+class TestCliCustomerGate:
+    """--customer is required because this tool WRITES into a customer's vault
+    folder. A model key that two customers share, resolved to the wrong one,
+    overwrites CSVs that have no git history behind them."""
+
+    def _parse(self, argv):
+        return smd._build_arg_parser().parse_args(argv)
+
+    def test_customer_is_accepted(self):
+        args = self._parse(["--customer", "customera", "modela"])
+        assert args.customer == "customera"
+        assert args.model == "modela"
+
+    def test_missing_customer_exits_with_a_usage_error(self):
+        with pytest.raises(SystemExit) as exc:
+            smd._main(["modela"])
+        assert exc.value.code == 2
+
+    def test_missing_customer_message_names_the_flag(self, capsys):
+        with pytest.raises(SystemExit):
+            smd._main(["modela"])
+        assert "--customer" in capsys.readouterr().err
+
+    def test_list_models_accepts_a_customer_instead_of_a_shard(self):
+        args = self._parse(["--list-models", "--customer", "customera"])
+        assert args.list_models and args.customer == "customera"
+
+    def test_list_models_rejects_both_shard_and_customer(self):
+        with pytest.raises(SystemExit) as exc:
+            smd._main(["--list-models", "--shard", "eu9z",
+                       "--customer", "customera"])
+        assert exc.value.code == 2
+
+    def test_list_models_rejects_neither_shard_nor_customer(self):
+        with pytest.raises(SystemExit) as exc:
+            smd._main(["--list-models"])
+        assert exc.value.code == 2
+
+    def test_emit_config_requires_list_models(self):
+        with pytest.raises(SystemExit) as exc:
+            smd._main(["--customer", "customera", "modela", "--emit-config"])
+        assert exc.value.code == 2
+
+    def test_shard_still_rejected_outside_list_models(self):
+        with pytest.raises(SystemExit) as exc:
+            smd._main(["--customer", "customera", "modela", "--shard", "eu9z"])
+        assert exc.value.code == 2
+
+
+class TestEmitConfig:
+    """--emit-config turns --list-models JSON into a paste-ready registry
+    block. Onboarding otherwise means hand-shaping 30-character GUIDs, which
+    is exactly the transcription error the registry exists to make impossible."""
+
+    FOUND = [
+        {"model_name": "ModelA", "model_id": "MODEL-A1",
+         "workspace_name": "WS One", "workspace_id": "WS-A1",
+         "customer_id": "CUST-A"},
+        {"model_name": "Data Hub", "model_id": "MODEL-A2",
+         "workspace_name": "WS Two", "workspace_id": "WS-A2",
+         "customer_id": "CUST-A"},
+    ]
+
+    def test_output_is_valid_python_declaring_CUSTOMERS(self):
+        block = smd.emit_config(self.FOUND, customer_key="customera",
+                                shard="eu9z")
+        ns = {}
+        exec(compile(block, "<emit>", "exec"), ns)
+        assert "customera" in ns["CUSTOMERS"]
+
+    def test_output_flattens_without_error(self):
+        import registry
+        ns = {}
+        exec(compile(smd.emit_config(self.FOUND, customer_key="customera",
+                                     shard="eu9z"), "<emit>", "exec"), ns)
+        flat = registry.flatten(ns["CUSTOMERS"])
+        assert set(flat) == {"customera:modela", "customera:data_hub"}
+
+    def test_customer_fields_are_declared_once_not_per_model(self):
+        block = smd.emit_config(self.FOUND, customer_key="customera",
+                                shard="eu9z")
+        assert block.count("CUST-A") == 1
+        assert block.count("eu9z") == 1
+
+    def test_model_keys_are_slugified_from_the_model_name(self):
+        ns = {}
+        exec(compile(smd.emit_config(self.FOUND, customer_key="customera",
+                                     shard="eu9z"), "<emit>", "exec"), ns)
+        assert set(ns["CUSTOMERS"]["customera"]["models"]) == {"modela", "data_hub"}
+
+    def test_raw_dir_defaults_to_the_model_name_with_a_todo(self):
+        """raw_dir must match the vault folder, which the API cannot know. It
+        is pre-filled with the model name and flagged, never left blank -
+        blank fails flatten() with a less useful message than a wrong guess
+        the user was told to check."""
+        block = smd.emit_config(self.FOUND, customer_key="customera",
+                                shard="eu9z")
+        assert "TODO" in block
+        ns = {}
+        exec(compile(block, "<emit>", "exec"), ns)
+        assert ns["CUSTOMERS"]["customera"]["models"]["modela"]["raw_dir"] == "ModelA"
+
+    def test_conflicting_customer_ids_are_reported_not_silently_merged(self):
+        found = self.FOUND + [dict(self.FOUND[0], model_name="Other",
+                                   model_id="M9", customer_id="CUST-OTHER")]
+        with pytest.raises(ValueError) as exc:
+            smd.emit_config(found, customer_key="customera", shard="eu9z")
+        assert "CUST-A" in str(exc.value) and "CUST-OTHER" in str(exc.value)

@@ -431,10 +431,13 @@ def emit_config(found, customer_key, shard):
 
     lines = [
         "# Paste into CUSTOMERS in tools/models.py, then:",
+        "#   - set 'name' to this customer's real display name (it is "
+        "auto-generated below from the customer key and is not one)",
         "#   - set 'folder' to this customer's folder under customers/",
         "#   - check every 'raw_dir' against the vault folder names",
         "#   - add 'engine': 'Classic' | 'Polaris' per model",
-        "#   - add 'workspace_label': 'DEV' where it is not production",
+        "#   - add 'workspace_label': 'DEV' where it is not production "
+        "(uncomment the line below)",
         "CUSTOMERS = {",
         f"    {customer_key!r}: {{",
         f"        'name': {customer_key.title()!r},",
@@ -451,6 +454,7 @@ def emit_config(found, customer_key, shard):
             f"                'workspace_id': {m.get('workspace_id') or ''!r},",
             f"                'model_id': {m.get('model_id') or ''!r},",
             f"                # 'engine': 'Classic',",
+            f"                # 'workspace_label': 'DEV',",
             "            },",
         ]
     lines += ["        },", "    },", "}"]

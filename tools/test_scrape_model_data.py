@@ -50,13 +50,16 @@ SHORTCUT = "customera:modela"
 
 
 class TestListModelsCli:
-    def test_list_models_requires_shard(self, capsys):
-        """--list-models has no registry entry to take a shard from, so it must
-        demand one explicitly rather than defaulting to any tenant."""
-        with pytest.raises(SystemExit) as exc:
-            smd._main(["--list-models"])
-        assert exc.value.code != 0
-        assert "--shard" in capsys.readouterr().err
+    # The old test_list_models_requires_shard used to live here. It asserted
+    # that `--list-models` with no `--shard` exits non-zero and mentions
+    # "--shard" in stderr — true once, but Task 6 made --customer an equally
+    # valid shard source for --list-models, so "requires --shard" stopped
+    # being what the code actually guarantees. It kept passing only because
+    # the new combined error message happens to still contain the substring
+    # "--shard". That scenario (bare `--list-models`, neither --shard nor
+    # --customer) is now covered, correctly named, by
+    # TestCliCustomerGate.test_list_models_rejects_neither_shard_nor_customer
+    # below — retired here rather than duplicated under a misleading name.
 
     def test_list_models_passes_shard_through(self, monkeypatch):
         seen = {}

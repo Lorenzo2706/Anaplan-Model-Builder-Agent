@@ -158,3 +158,59 @@ class TestFilteredModelMenu:
         assert "customerc" in out
         assert "not filtered" in out.lower() or "account-wide" in out.lower()
         assert result == ("SENTINEL", "n", "w", "c")
+
+
+class TestNuxOutputLocation:
+    def test_default_output_folder_is_the_customers_UI_folder(
+            self, registered, answers, monkeypatch, tmp_path):
+        import os
+        monkeypatch.setattr(registry, "REPO_ROOT", str(tmp_path))
+        monkeypatch.setenv("ANAPLAN_USERNAME", "u@example.com")
+        monkeypatch.setenv("ANAPLAN_PASSWORD", "pw")
+        monkeypatch.delenv("ANAPLAN_OUTPUT_FOLDER", raising=False)
+        answers(["2", "", "", "", ""])            # customerb, accept defaults
+        config = scraper_ux._collect_config()
+        parts = os.path.normpath(config["output_folder"]).split(os.sep)
+        assert parts[-3:] == ["customers", "CustomerB", "UI"]
+
+    def test_default_is_per_customer_not_one_shared_folder(
+            self, registered, answers, monkeypatch, tmp_path):
+        """Two customers' NUX reports must not pile into one directory: the
+        filenames carry only the model name, and model names collide across
+        customers ('Data Hub')."""
+        monkeypatch.setattr(registry, "REPO_ROOT", str(tmp_path))
+        monkeypatch.setenv("ANAPLAN_USERNAME", "u@example.com")
+        monkeypatch.setenv("ANAPLAN_PASSWORD", "pw")
+        monkeypatch.delenv("ANAPLAN_OUTPUT_FOLDER", raising=False)
+        answers(["1", "", "", "", ""])
+        a = scraper_ux._collect_config()["output_folder"]
+        answers(["2", "", "", "", ""])
+        b = scraper_ux._collect_config()["output_folder"]
+        assert a != b
+
+    def test_explicit_answer_still_overrides_the_default(
+            self, registered, answers, monkeypatch, tmp_path):
+        """A scratch run outside the vault must stay possible - it is how a
+        first scrape gets diffed before promotion (spec decision 17)."""
+        import os
+        monkeypatch.setenv("ANAPLAN_USERNAME", "u@example.com")
+        monkeypatch.setenv("ANAPLAN_PASSWORD", "pw")
+        answers(["1", "", "", str(tmp_path / "scratch"), ""])
+        config = scraper_ux._collect_config()
+        # Compared via os.path.normpath, not raw string equality: _ask()
+        # always runs the answer through _normalise_path (backslash ->
+        # forward slash), which on Windows makes str(tmp_path / "scratch")
+        # (backslash-separated) never literally equal the returned value even
+        # though it names the same directory. normpath makes the comparison
+        # separator-agnostic without weakening what is actually asserted -
+        # that the explicit answer, not the customer default, won.
+        assert os.path.normpath(config["output_folder"]) == os.path.normpath(str(tmp_path / "scratch"))
+
+    def test_the_folder_is_created(self, registered, answers, monkeypatch, tmp_path):
+        import os
+        monkeypatch.setattr(registry, "REPO_ROOT", str(tmp_path))
+        monkeypatch.setenv("ANAPLAN_USERNAME", "u@example.com")
+        monkeypatch.setenv("ANAPLAN_PASSWORD", "pw")
+        monkeypatch.delenv("ANAPLAN_OUTPUT_FOLDER", raising=False)
+        answers(["1", "", "", "", ""])
+        assert os.path.isdir(scraper_ux._collect_config()["output_folder"])

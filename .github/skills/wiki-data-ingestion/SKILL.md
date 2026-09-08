@@ -113,15 +113,16 @@ to Phase 1 with the provided paths.
    `<CUSTOMER_ROOT>/raw/models/` and `<CUSTOMER_ROOT>/wiki/models/`), not a full
    descriptive name.
 
-3. **Resolve a scraper shortcut.** Check `tools/models.py`'s `MODELS` dict for a key whose
-   entry has `customer_id`, `workspace_id`, and `model_id` all present for this model.
-   Verify the entry's `customer_id` is the tenant of the customer resolved in Phase 0.5 —
-   shortcut keys are a flat namespace across every customer, so a similarly-named entry
-   can belong to a different tenant, and scraping the wrong one writes another customer's
-   model into this customer's folder.
+3. **Resolve a scraper shortcut.** Check `tools/models.py`'s `CUSTOMERS` tree for the
+   resolved customer's entry, then for a model nested under it whose customer declares
+   `shard`/`folder`/`customer_id` and whose own entry has `name`, `raw_dir`, `workspace_id`,
+   and `model_id` all present (`engine` and `workspace_label` are optional). Composite
+   shortcut keys are `<customer_key>:<model_key>` precisely so a similarly-named model
+   under a different customer can never be reached by mistake — scraping the wrong one
+   writes another customer's model into this customer's folder.
    - **Shortcut exists** → note the key and the model's exact folder name, go to Phase 1B.
    - **No shortcut yet** (expected for any model not already registered — `tools/models.py`
-     ships with an empty `MODELS` dict plus one commented-out example) → run:
+     ships with an empty `CUSTOMERS` tree plus one commented-out example) → run:
      ```powershell
      python tools/scrape_model_data.py --list-models --shard eu3
      ```
@@ -135,11 +136,13 @@ to Phase 1 with the provided paths.
      paste-ready `CUSTOMERS` block instead of raw JSON). Filter to candidates matching the
      requested name and **show them to the user for explicit confirmation** — the same model
      name can exist in more than one workspace.
-   - Once confirmed, add `<PREFIX>_MODEL_ID=<model_id>` to `.env` (reuse a shared workspace
-     var if one already exists for this tenant/workspace; otherwise ask the user what to call
-     the new one) and mirror the example entry in `tools/models.py` with `customer_id`,
-     `workspace_id`, `model_id`. Show the user what you're about to add before writing it —
-     this is the first time this model becomes scriptable, worth a quick confirmation.
+   - Once confirmed, add the model as a new entry under the target customer's `models` key
+     in `tools/models.py` (`--emit-config` above already prints a paste-ready block with
+     `name`, `raw_dir`, `workspace_id`, and `model_id` filled in). Reuse the customer's
+     existing `shard`/`folder`/`customer_id` rather than repeating them — no `.env`
+     involvement, GUIDs live inline in `models.py`. Show the user what you're about to add
+     before writing it — this is the first time this model becomes scriptable, worth a
+     quick confirmation.
    - Proceed to Phase 1B with the new shortcut key.
 
 ---

@@ -31,6 +31,7 @@ customers/                Per-customer content — gitignored, never leaves this
       models/<Model>/       Per-model wiki pages, mirrors raw/models/
       sources/               One summary page per ingested *customer-specific* source
     logs/<Model>/            Error/diagnostic logs from imports, actions, processes — a peer of raw/, not nested inside it: these are operational output from a live model, not immutable source material to mine for the wiki
+    UI/                      NUX (new-UX) usage exports produced by tools/scraper_ux.py — generated output, one folder per customer because report filenames carry only the model name
     analyses/                Standalone deep-dive artifacts (HTML, docx) for this customer's models
     index.md, log.md         Domain-local index and operation log
 
@@ -42,7 +43,7 @@ Clippings/                Obsidian Web Clipper landing folder for new raw docs �
 index.md, log.md          Vault-root routers — thin pointers to the domain indexes/logs above, not catalogs themselves
 ```
 
-**Version control:** `.gitignore` excludes all of `customers/` (including `customers/registry.md`) and all of `other-topics/`. `anaplan/` is fully tracked and public, alongside `CLAUDE.md`, `.claude/skills/`, `.github/skills/`, `.github/instructions/`, and `tools/*.py` (except `tools/models.py`). **Never write customer-identifying information into anything under `anaplan/`** — that folder ships with the public template. Don't assume `customers/` or `other-topics/` content is recoverable from git history; treat the on-disk files as the sole source of truth for those domains.
+**Version control:** `.gitignore` excludes all of `customers/` (including `customers/registry.md`) and all of `other-topics/` — this covers `customers/<Customer>/UI/` too, so NUX Excel exports from `tools/scraper_ux.py` never reach git. `anaplan/` is fully tracked and public, alongside `CLAUDE.md`, `.claude/skills/`, `.github/skills/`, `.github/instructions/`, and `tools/*.py` (except `tools/models.py`). **Never write customer-identifying information into anything under `anaplan/`** — that folder ships with the public template. Don't assume `customers/` or `other-topics/` content is recoverable from git history; treat the on-disk files as the sole source of truth for those domains.
 
 **Root `index.md`/`log.md` are thin routers only** — they list which domain index/log to open, they do not themselves catalog pages or accumulate entries. On ingest, update the relevant **domain's** sub-index (`anaplan/index.md`, `customers/<Name>/index.md`, or `other-topics/index.md`) and that domain's own `log.md`. Touch a root router file only when a new customer or top-level domain is added.
 
@@ -52,7 +53,7 @@ index.md, log.md          Vault-root routers — thin pointers to the domain ind
 
 Every model-touching skill, and every query about a specific model, must resolve **which domain root to operate under** before doing anything else. Read `customers/registry.md` (a Customer | Model | Folder | Engine | Notes table) to do this:
 
-1. **A model name is mentioned or inferable** (e.g. "write a formula for MJP", a dropped CSV sitting under a folder you can identify) → look it up in `customers/registry.md`. Its row gives you the customer, the engine (Classic/Polaris), and the exact folder. Operate under `customers/<Customer>/...` for that model.
+1. **A model name is mentioned or inferable** (e.g. "write a formula for ModelA", a dropped CSV sitting under a folder you can identify) → look it up in `customers/registry.md`. Its row gives you the customer, the engine (Classic/Polaris), and the exact folder. Operate under `customers/<Customer>/...` for that model.
 2. **The model name isn't in the registry yet** (new model, first ingest) → ask the user which customer it belongs to (or infer unambiguously from ingest context — e.g. the file was dropped inside an existing `customers/<Name>/` tree), then add a new row to `customers/registry.md` as part of that ingest.
 3. **The question is about generic Anaplan tool knowledge** (a function, DISCO, PLANS, a concept with no customer tie) → operate under `anaplan/...`. Never look this up in the registry — it has no customer.
 4. **The content is unrelated to Anaplan entirely** → operate under `other-topics/...`.

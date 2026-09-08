@@ -69,24 +69,28 @@ the example entry there) - that turns "pick from a live list" into "type a known
 number," which is the only part of the wizard that can't otherwise be
 scripted blind.
 
-1. Read `tools/models.py`. `MODELS` is a dict; a model counts as a usable shortcut
-   only if `customer_id`, `workspace_id`, and `model_id` are all truthy.
-   Compute the 1-based position of the target model among the usable
-   shortcuts, in dict order - that number is exactly what the wizard's
-   "MODEL SELECTION" menu will show.
+1. Read `tools/models.py`. It holds a `CUSTOMERS` tree (customer key -> customer
+   fields -> nested `models`), not a flat dict; a model counts as a usable
+   shortcut only once its customer's `shard`, `folder`, and `customer_id`, plus
+   its own `name`, `raw_dir`, `workspace_id`, and `model_id`, are all present
+   (`engine` and `workspace_label` are optional). Compute the model's 1-based
+   position among *that customer's* usable models, in the order they appear
+   under the customer - that number is exactly what the wizard's
+   customer-filtered "MODEL SELECTION" menu will show once that customer is
+   chosen.
 2. If the target model has no shortcut yet, you need its Anaplan model GUID.
    Ask the user for it - they can copy it out of the browser address bar while
    the model is open in Anaplan (`.../models/<GUID>/...`). Then:
-   - Append `<PREFIX>_MODEL_ID=<guid>` to `.env` (pick a short prefix from the
-     model name).
-   - Add a matching entry to the `MODELS` dict in `tools/models.py`, mirroring
-     the commented-out example entry exactly (same `customer_id`/`workspace_id`
-     variables, new `model_id` env var).
+   - Add a new entry under the target customer's `models` key in
+     `tools/models.py`, giving it `name`, `raw_dir`, `workspace_id`, and
+     `model_id` as literals (no `.env` involvement - GUIDs live inline in
+     `models.py`, not in environment variables). Reuse the customer's already-
+     declared `shard`/`folder`/`customer_id` rather than repeating them.
    - Re-read the file to recompute the shortcut's numeric position.
 3. Preflight-check `.env` has what non-interactive login needs, **without
    printing or reading any secret values** - only check presence, e.g.:
    ```
-   python -c "import os; from dotenv import load_dotenv; load_dotenv(); print('ANAPLAN_USERNAME' in os.environ and bool(os.getenv('ANAPLAN_USERNAME')), bool(os.getenv('ANAPLAN_PASSWORD')), bool(os.getenv('CUSTOMER_ID')), bool(os.getenv('DEV_POLARIS')))"
+   python -c "import os; from dotenv import load_dotenv; load_dotenv(); print('ANAPLAN_USERNAME' in os.environ and bool(os.getenv('ANAPLAN_USERNAME')), bool(os.getenv('ANAPLAN_PASSWORD')), bool(os.getenv('ANAPLAN_USE_SSO')))"
    ```
    `ANAPLAN_PASSWORD` in particular is non-negotiable for automation: if it's
    missing, `tools/scraper_ux.py` falls back to `getpass.getpass()`, which cannot be
@@ -101,10 +105,10 @@ one of them has a usable default except the model-selection number and the
 final "scrape another model?" loop (which defaults to "yes" and must be
 stopped explicitly). In order:
 
-1. Anaplan environment - accept default
+1. Customer - accept default, or the customer's number from the menu
 2. Email - accept default (password is read from `.env` directly, no prompt)
 3. SSO? - accept default
-4. Output folder - accept default
+4. Output folder - accept default (`customers/<folder>/UI/`)
 5. "Everything correct?" - accept default (yes)
 6. Model selection - **the shortcut number from Step 2**
 7. "Ready to scrape '<model>'. Continue?" - accept default (yes)
@@ -112,11 +116,15 @@ stopped explicitly). In order:
    wizard loops back to model selection with no way to feed it a second
    pre-computed choice
 
-That means the full stdin payload is five blank lines, the shortcut number,
-one more blank line, then `n`:
+The model menu now lists **only the chosen customer's models**, so the
+shortcut number is per-customer - re-read it from the menu rather than reusing
+a number from a previous run against a different customer.
+
+That means the full stdin payload is the customer number, four blank lines,
+the shortcut number, one more blank line, then `n`:
 
 ```bash
-printf '\n\n\n\n\n%s\n\nn\n' "<shortcut_number>" | python tools/scraper_ux.py
+printf '%s\n\n\n\n\n%s\n\nn\n' "<customer_number>" "<shortcut_number>" | python tools/scraper_ux.py
 ```
 
 Run this in the background - it opens a real (non-headless) Edge window and
@@ -130,9 +138,9 @@ their own screen even though the wizard's text answers are coming from the
 piped stdin.
 
 Wait for the background command to finish, then find the newest file matching
-`Anaplan NUX Report - <model name>_*.xlsx` in the output folder (`.env`'s
-`ANAPLAN_OUTPUT_FOLDER`, or the script's default
-`~/Documents/Anaplan NUX Reports` if unset).
+`Anaplan NUX Report - <model name>_*.xlsx` in `customers/<folder>/UI/` — or in
+`ANAPLAN_OUTPUT_FOLDER` if that is set in `.env`, which overrides the
+per-customer default for every customer.
 
 If the run fails or hangs (most commonly: an SSO/MFA challenge that took
 longer than the script's fixed post-login wait, so the subsequent API calls

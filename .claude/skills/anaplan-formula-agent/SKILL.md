@@ -230,8 +230,8 @@ dimension?"* Target → LOOKUP. Source → SUM.
 
 **Do NOT use `SUM()` for a plain dimensional roll-up.** If the target module is
 simply dimensioned by a **subset** of the source module's dimensions (no separate
-list-to-list mapping module involved — e.g. target is `FSP versies, Year`, source
-is `FSP versies, Shareholders, Year`), and the source line item's Summary Method
+list-to-list mapping module involved — e.g. target is `Scenarios, Year`, source
+is `Scenarios, Shareholders, Year`), and the source line item's Summary Method
 is **Sum**, a plain dot-reference (`'Source Module'.'Line Item'`) is enough —
 Anaplan aggregates across the missing dimension automatically. Wrapping this in
 `SUM(...)` is syntactically wrong, since there is no mapping argument to pass.

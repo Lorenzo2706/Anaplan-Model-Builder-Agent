@@ -77,7 +77,28 @@ DEFAULTS = {
 }
 # ─────────────────────────────────────────────────────────────────────────────
 
-DEFAULT_OUTPUT_FOLDER = os.path.join(os.path.expanduser("~"), "Documents", "Anaplan NUX Reports")
+def _default_output_folder(folder):
+    """NUX Excel reports land in customers/<folder>/UI/ (spec decision 12).
+
+    Per-customer, not one shared directory: report filenames carry only the
+    model name, and model names collide across customers ("Data Hub"), so a
+    shared folder silently overwrites one customer's report with another's.
+
+    A peer of raw/, not inside it: raw/ is immutable source material and a NUX
+    report is generated output.
+
+    This is only the DEFAULT. `ANAPLAN_OUTPUT_FOLDER` in `.env`, when set,
+    still wins over it - for EVERY customer, not just the one whose folder
+    would otherwise apply here. That is a deliberate user escape hatch (a
+    scratch run outside the OneDrive-synced vault), not a tenant-scoped
+    fallback, which is why the per-customer path below is the default rather
+    than the only option.
+
+    Reads `registry.REPO_ROOT` as a module attribute at call time (not a
+    module-level constant here) so tests can monkeypatch it without touching
+    the real, OneDrive-synced vault.
+    """
+    return os.path.join(registry.REPO_ROOT, "customers", folder, "UI")
 
 
 def _safe_filename(value: str, fallback: str = "model") -> str:
@@ -212,7 +233,9 @@ def _collect_config() -> dict:
     _separator()
     print("STEP 3 of 4 — Output location")
     _separator()
-    folder_default = _normalise_path(DEFAULTS["output_folder"]) if DEFAULTS["output_folder"] else DEFAULT_OUTPUT_FOLDER
+    folder_default = (_normalise_path(DEFAULTS["output_folder"])
+                      if DEFAULTS["output_folder"]
+                      else _default_output_folder(customer["folder"]))
     output_folder = _normalise_path(_ask(
         "\nFolder where the Excel file should be saved",
         default=folder_default,

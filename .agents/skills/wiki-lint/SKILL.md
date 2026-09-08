@@ -5,7 +5,7 @@ description: >
   Trigger this skill whenever the user asks to: lint the wiki, run a wiki health check, check for
   orphan pages, find broken links, check wiki consistency, audit the wiki, or do a wiki cleanup.
   Also trigger when the user says "sanity check" in the context of a documentation or notes system.
-  Works on any wiki that has index files and markdown pages — Obsidian vaults, main.instructions.md-driven
+  Works on any wiki that has index files and markdown pages — Obsidian vaults, AGENTS.md-driven
   knowledge bases, plain markdown wikis, etc.
 ---
 
@@ -17,7 +17,7 @@ A generic sanity-check and auto-fix pass for any markdown wiki. The goal is to k
 
 Before running any checks, understand the wiki's structure. Look for, in order:
 
-1. **main.instructions.md or README.md** at the vault root — this is the richest source of structural conventions (index file names, log file name, link syntax, folder layout).
+1. **AGENTS.md or README.md** at the vault root — this is the richest source of structural conventions (index file names, log file name, link syntax, folder layout).
 2. **A master index file** (`index.md` at the root, or whatever the conventions say). Read it to understand the top-level sections and where sub-indexes live.
 3. **Sub-index files** — follow every sub-index link from the master index and read those too. They define what's "officially catalogued" in each section.
 
@@ -138,7 +138,7 @@ End with: "No contradictions found" or list the contradictions and their resolut
 
 **Obsidian vaults with `[[wiki links]]`:** The `[[target]]` syntax may omit the `.md` extension and may be relative or use the page title. Resolve links by matching the target string against file basenames (case-insensitive where the OS is case-insensitive).
 
-**Wikis with a main.instructions.md:** main.instructions.md describes the intended structure — use it as the spec. Pages that main.instructions.md says should exist but don't are missing pages, not just gaps.
+**Wikis with a AGENTS.md:** AGENTS.md describes the intended structure — use it as the spec. Pages that AGENTS.md says should exist but don't are missing pages, not just gaps.
 
 **Wikis without any index:** Run checks A–E using grep-based link analysis. Every page is reachable if at least one other page links to it OR it's at the top level of a section folder.
 

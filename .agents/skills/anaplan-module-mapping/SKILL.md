@@ -14,7 +14,7 @@ description: >
 
 # Anaplan Module Mapping — Dual Explanation Standard
 
-**Before anything else:** resolve `<CUSTOMER_ROOT>` for the model(s) involved via `customers/registry.md`, per `main.instructions.md` § Client Resolution.
+**Before anything else:** resolve `<CUSTOMER_ROOT>` for the model(s) involved via `customers/registry.md`, per `AGENTS.md` § Client Resolution.
 
 When you map or connect a line item in one Anaplan module to a source in another, always 
 deliver two explanations for every formula. Do not combine them into one paragraph — keep 

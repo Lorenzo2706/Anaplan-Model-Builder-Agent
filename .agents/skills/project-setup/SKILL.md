@@ -11,7 +11,7 @@ description: >
   domain skeleton (`anaplan/`, `customers/`, `other-topics/`), creating/extending
   `customers/registry.md` with customer + model + engine rows, and reporting which
   of the eight project skills (all ship with the repo) are present under
-  `.github/skills/`. Always check current state first so re-running is a safe no-op.
+  `.agents/skills/`. Always check current state first so re-running is a safe no-op.
 ---
 
 # Project Setup — Bootstrap and Customer Onboarding
@@ -32,7 +32,7 @@ Before changing anything, check:
 2. Does `customers/registry.md` exist?
 3. Which customer folders already exist under `customers/`?
 4. Does `other-topics/` exist?
-5. Which skill folders exist under `.github/skills/`?
+5. Which skill folders exist under `.agents/skills/`?
 
 **If (1) and (2) are both true**, this vault has already been bootstrapped — you
 are in **onboard-a-customer** mode (Phase 2 only; skip Phase 1).
@@ -44,7 +44,7 @@ mode (Phase 1, then Phase 2 for the first customer(s)).
 
 ## Phase 1 — Build the shared skeleton (first-run only)
 
-Create whichever of the following don't already exist. Empty is fine — Copilot
+Create whichever of the following don't already exist. Empty is fine — Codex
 populates them over time as content is ingested:
 
 - `anaplan/raw/docs/`, `anaplan/raw/assets/`
@@ -57,7 +57,7 @@ Guardrails:
   no-op, but don't delete or clear anything inside it.
 - **Don't create `customers/registry.md` here** — Phase 2 owns it.
 - **Don't create `anaplan/index.md` or `anaplan/log.md`** — these are generated
-  organically on first ingest, not pre-seeded, per `main.instructions.md`.
+  organically on first ingest, not pre-seeded, per `AGENTS.md`.
 
 If `anaplan/` ships already populated (it does, in this template — it's
 git-tracked and carries the accumulated generic Anaplan knowledge base), this
@@ -83,7 +83,7 @@ Ask: **"How many customers do you want to set up this vault for — just one
    (create the file with its header + table if it doesn't exist yet). If not,
    still create the customer skeleton and leave the registry without model
    rows for now — `wiki-data-ingestion` adds them on first CSV ingest.
-4. Create `customers/<Name>/index.md` following the pattern in `main.instructions.md`'s
+4. Create `customers/<Name>/index.md` following the pattern in `AGENTS.md`'s
    Layers section (a domain index listing Models/Sources/Analyses/Raw
    sections, empty placeholders where nothing's ingested yet) and an empty
    `customers/<Name>/log.md`.
@@ -98,7 +98,7 @@ Just run steps 1–4 above for the new customer, then also touch the root
 at the new customer's index — never add it anywhere else in that file, and
 never link past the customer's own index straight to one of its models.
 This keeps the cascade (root → customer index → model sub-index → page)
-intact as customers are added — per `main.instructions.md`'s Cascade principle.
+intact as customers are added — per `AGENTS.md`'s Cascade principle.
 
 Guardrail: **never overwrite an existing `customers/<Name>/` tree.** If the
 name the user gives already has a folder, tell them and ask whether they mean
@@ -112,7 +112,7 @@ not this skill) or whether they mean a different, similarly-named customer.
 Report which of `anaplan-formula-agent`, `anaplan-module-mapping`,
 `anaplan-model-optimizer`, `anaplan-model-documentation`,
 `circular-reference-prevention`, `wiki-lint`, `wiki-data-ingestion`, and
-`project-setup` (this skill) are present under `.github/skills/` — they all
+`project-setup` (this skill) are present under `.agents/skills/` — they all
 ship with the repo, so normally all 8 are.
 
 ---

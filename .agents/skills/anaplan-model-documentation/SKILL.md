@@ -19,7 +19,7 @@ description: >
 
 # Anaplan Model Documentation
 
-**Before anything else:** resolve `<CUSTOMER_ROOT>` for the model in question via `customers/registry.md`, per `main.instructions.md` § Client Resolution. All paths below are relative to that resolved root.
+**Before anything else:** resolve `<CUSTOMER_ROOT>` for the model in question via `customers/registry.md`, per `AGENTS.md` § Client Resolution. All paths below are relative to that resolved root.
 
 Produces a full Word documentation deliverable for one Anaplan model,
 following a fixed-but-flexible chapter structure. "Fixed" means the top-level
@@ -98,7 +98,7 @@ Before dispatching anything, pin down three things:
    proceed straight to documentation.
 2. **Engine.** Polaris vs. Classic changes how you should describe
    sparsity/LOOKUP/aggregation behavior in the Modules section. Check
-   `main.instructions.md`'s model list or the wiki page; if genuinely unknown, flag it
+   `AGENTS.md`'s model list or the wiki page; if genuinely unknown, flag it
    rather than guessing (see `anaplan-formula-agent`'s engine-determination
    gate for the same principle).
 3. **House style.** Did the user provide (or reference) an example document
@@ -150,7 +150,7 @@ agent since each one is reading multiple wiki pages and CSVs.
    files in the order given and that order becomes the document order.
 2. Run the bundled parser:
    ```bash
-   python .github/skills/anaplan-model-documentation/scripts/md_to_sections.py \
+   python .agents/skills/anaplan-model-documentation/scripts/md_to_sections.py \
      <output>/sections.json sec1_intro.md sec2_dataflows.md sec3_lists.md \
      sec4_modules.md sec5_integrations.md sec6_ux_scheme.md
    ```
@@ -163,7 +163,7 @@ agent since each one is reading multiple wiki pages and CSVs.
    have content) before moving on.
 3. Build the docx:
    ```bash
-   NODE_PATH="$(npm root -g)" node .github/skills/anaplan-model-documentation/scripts/build_docx.js \
+   NODE_PATH="$(npm root -g)" node .agents/skills/anaplan-model-documentation/scripts/build_docx.js \
      <output>/sections.json <output>/<Model>-Model-Documentation.docx \
      "<Model> — <one-line model description>" "Model documentation" \
      [<output>/style-override.json]
@@ -197,7 +197,7 @@ real defect in the file. Use the bundled validator instead, which checks
 zip integrity and XML well-formedness directly without that failure mode:
 
 ```bash
-python .github/skills/anaplan-model-documentation/scripts/validate_docx.py <path-to.docx>
+python .agents/skills/anaplan-model-documentation/scripts/validate_docx.py <path-to.docx>
 ```
 
 It also prints heading/table/placeholder counts - sanity-check them against

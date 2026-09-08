@@ -41,7 +41,7 @@ ingest, or a model data refresh?"*
 ## Phase 0.5 — Resolve the domain
 
 Before reading or writing any path below, resolve which domain this ingest
-belongs to, per `main.instructions.md` § Client Resolution:
+belongs to, per `AGENTS.md` § Client Resolution:
 
 1. **Model CSV export** (Modules.csv, Line Items.csv, General Lists.csv,
    Actions.csv, Model Calendar.csv, or any file inside a per-model

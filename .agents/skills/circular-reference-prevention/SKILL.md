@@ -11,7 +11,7 @@ description: >
 
 # Circular Reference Prevention
 
-**Before anything else:** resolve `<CUSTOMER_ROOT>` for the model in question via `customers/registry.md`, per `main.instructions.md` § Client Resolution. All paths below are relative to that resolved root.
+**Before anything else:** resolve `<CUSTOMER_ROOT>` for the model in question via `customers/registry.md`, per `AGENTS.md` § Client Resolution. All paths below are relative to that resolved root.
 
 ## Overview
 

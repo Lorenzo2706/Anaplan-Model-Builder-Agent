@@ -25,7 +25,7 @@ description: >
 
 # Anaplan Model Optimizer
 
-**Before anything else:** resolve `<CUSTOMER_ROOT>` for the model in question via `customers/registry.md`, per `main.instructions.md` § Client Resolution. All paths below are relative to that resolved root.
+**Before anything else:** resolve `<CUSTOMER_ROOT>` for the model in question via `customers/registry.md`, per `AGENTS.md` § Client Resolution. All paths below are relative to that resolved root.
 
 Finds modules in a production Anaplan model that can likely be deleted, by
 combining two signals that neither one alone can safely provide:
@@ -50,7 +50,7 @@ Ask which model to analyze if it isn't already clear from context. The
 cross-reference in Step 4 needs `<CUSTOMER_ROOT>/raw/models/<Model Name>/Modules.csv` (and
 ideally `Imports.csv`) to already exist - these are the CSVs the
 `wiki-data-ingestion` skill produces from a model's own CSV export. Check the
-project's `main.instructions.md` for its Engine defaults list (which models are
+project's `AGENTS.md` for its Engine defaults list (which models are
 currently ingested, and whether each is Classic or Polaris) - don't assume
 either engine, and ask the user if the model isn't listed there yet.
 
@@ -152,7 +152,7 @@ happened and offer to retry.
 Run the bundled script:
 
 ```bash
-python .github/skills/anaplan-model-optimizer/scripts/analyze_module_usage.py \
+python .agents/skills/anaplan-model-optimizer/scripts/analyze_module_usage.py \
   --excel "<path to the NUX report .xlsx>" \
   --model-dir "<CUSTOMER_ROOT>/raw/models/<Model Name>" \
   --model-name "<Model Name>" \

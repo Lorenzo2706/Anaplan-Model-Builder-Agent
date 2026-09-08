@@ -168,6 +168,13 @@ class TestNuxOutputLocation:
         monkeypatch.setenv("ANAPLAN_USERNAME", "u@example.com")
         monkeypatch.setenv("ANAPLAN_PASSWORD", "pw")
         monkeypatch.delenv("ANAPLAN_OUTPUT_FOLDER", raising=False)
+        # DEFAULTS["output_folder"] is computed once at module import from
+        # os.getenv, so delenv above cannot retroactively clear an
+        # already-frozen dict entry (unlike ANAPLAN_PASSWORD, which
+        # _collect_config reads live). Neutralise the frozen default
+        # directly so this test exercises _default_output_folder /
+        # registry.REPO_ROOT rather than a real .env-configured folder.
+        monkeypatch.setitem(scraper_ux.DEFAULTS, "output_folder", "")
         answers(["2", "", "", "", ""])            # customerb, accept defaults
         config = scraper_ux._collect_config()
         parts = os.path.normpath(config["output_folder"]).split(os.sep)
@@ -182,6 +189,9 @@ class TestNuxOutputLocation:
         monkeypatch.setenv("ANAPLAN_USERNAME", "u@example.com")
         monkeypatch.setenv("ANAPLAN_PASSWORD", "pw")
         monkeypatch.delenv("ANAPLAN_OUTPUT_FOLDER", raising=False)
+        # See test_default_output_folder_is_the_customers_UI_folder above:
+        # delenv alone cannot clear the already-frozen DEFAULTS entry.
+        monkeypatch.setitem(scraper_ux.DEFAULTS, "output_folder", "")
         answers(["1", "", "", "", ""])
         a = scraper_ux._collect_config()["output_folder"]
         answers(["2", "", "", "", ""])
@@ -212,5 +222,8 @@ class TestNuxOutputLocation:
         monkeypatch.setenv("ANAPLAN_USERNAME", "u@example.com")
         monkeypatch.setenv("ANAPLAN_PASSWORD", "pw")
         monkeypatch.delenv("ANAPLAN_OUTPUT_FOLDER", raising=False)
+        # See test_default_output_folder_is_the_customers_UI_folder above:
+        # delenv alone cannot clear the already-frozen DEFAULTS entry.
+        monkeypatch.setitem(scraper_ux.DEFAULTS, "output_folder", "")
         answers(["1", "", "", "", ""])
         assert os.path.isdir(scraper_ux._collect_config()["output_folder"])

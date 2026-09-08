@@ -221,11 +221,13 @@ repeating them per model:
 python tools/scrape_model_data.py --list-models --customer customera --emit-config
 ```
 
-Confirm the right entry with the user, then add it to `.env`/
-`models.py` (mirror the example entry in `tools/models.py.example`) before
-scraping. `tools/models.py` itself is gitignored — like `.env`, it holds your
-real shortcuts locally and never reaches git; `tools/models.py.example` is
-the tracked template to copy from on a fresh clone.
+Confirm the right entry with the user, then add it as a new model under the
+customer's `models` key in `tools/models.py` (mirror the example entry in
+`tools/models.py.example`) before scraping — no `.env` involvement, every
+GUID lives inline in `models.py`'s `CUSTOMERS` tree. `tools/models.py` itself
+is gitignored — like `.env`, it holds your real shortcuts locally and never
+reaches git; `tools/models.py.example` is the tracked template to copy from
+on a fresh clone.
 
 ## When to use which mode
 
@@ -290,23 +292,32 @@ results = download_model_exports("modela")   # default: registry-derived out_dir
 # results: {filename: {"ok": bool, "saved_path": str|None, "error": str|None}}
 ```
 
-`model` is a `models.MODELS` shortcut key (e.g. `modela`). It opens a real
-(non-headless) Edge window and logs in automatically via basic auth; no manual
-step is needed unless SSO is enabled. It prints a per-grid ✅/✗ summary and an
+`model` is a shortcut key nested under a customer in `tools/models.py`'s
+`CUSTOMERS` tree (e.g. `modela`), resolved via `registry.resolve_shortcut` —
+pass it with `--customer <key>` or as a composite `<key>:<shortcut>`. It opens
+a real (non-headless) Edge window and logs in automatically via basic auth; no
+manual step is needed unless SSO is enabled. It prints a per-grid ✅/✗ summary and an
 `N/13 exported` line, and exits 0 only when all 13 succeed.
 
 ### Adding a new model
 
-1. Add `<PREFIX>_MODEL_ID=<guid>` to `.env`. A workspace variable and a
-   `customer_id` can be reused **only** by models in the same customer's
-   tenant and workspace — a second customer has its own tenant GUID, its own
-   workspaces, and possibly its own Anaplan shard, so nothing here is global.
-2. Mirror the example entry in `models.py` with `folder`, `raw_dir`, `shard`,
-   `customer_id`, `workspace_id`, `model_id`, then call
-   `python tools/scrape_model_data.py --customer <customer-key> <prefix> --ui-only` — the output folder
-   is derived from the entry's `folder` + `raw_dir`, so no `--out` is needed
-   once the entry exists (and that folder must already exist in the vault; see
-   the callout above).
+1. Add a new entry under the target customer's `models` key in
+   `tools/models.py`, giving it its own `name`, `raw_dir`, `workspace_id`,
+   and `model_id` as literals — no `.env` involvement, GUIDs live inline in
+   `models.py`'s `CUSTOMERS` tree. Reuse that customer's already-declared
+   `shard`/`folder`/`customer_id` rather than repeating them — a workspace or
+   `customer_id` can be reused **only** by other models in that same
+   customer's tenant and workspace; a second customer has its own tenant
+   GUID, its own workspaces, and possibly its own Anaplan shard, so nothing
+   here is global. `engine` and `workspace_label` are optional per-model
+   fields. `python tools/scrape_model_data.py --list-models --customer <key>
+   --emit-config` prints a paste-ready block with these fields pre-filled
+   (`raw_dir` flagged `TODO`, since the API can't know the vault folder name)
+   — the fastest way to close this step.
+2. Call `python tools/scrape_model_data.py --customer <customer-key> <model-key> --ui-only` —
+   the output folder is derived from the entry's `folder` + `raw_dir`, so no
+   `--out` is needed once the entry exists (and that folder must already exist
+   in the vault; see the callout above).
 
 (Raw model-id GUIDs are rejected on purpose — a bare id has no reliable way to infer
 its workspace, so register a shortcut instead.)

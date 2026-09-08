@@ -493,3 +493,84 @@ class TestEmitConfig:
         with pytest.raises(ValueError) as exc:
             smd.emit_config(found, customer_key="customera", shard="eu9z")
         assert "CUST-A" in str(exc.value) and "CUST-OTHER" in str(exc.value)
+
+
+class TestCustomerForwardedToExportEntryPoints:
+    """--customer must actually reach registry.resolve_shortcut from every
+    export entry point (the default API path, --full, and --ui-only), not
+    just gate the CLI's presence check. Before this fix none of the three
+    download_model_exports* functions forwarded the CLI's --customer value,
+    so registry.resolve()'s customer= disambiguation was dead code here: a
+    bare model key unique to CustomerB resolved to CustomerB via the alias
+    branch even when --customer customera was passed on the command line -
+    a silent wrong-vault write, in the one tool with no git history behind
+    the files it writes."""
+
+    TWO_CUSTOMERS = {
+        "customera": {
+            "name": "CustomerA",
+            "shard": "eu9z",
+            "folder": "CustomerA",
+            "customer_id": "C1",
+            "models": {
+                "modela": {
+                    "name": "ModelA",
+                    "raw_dir": "ModelA",
+                    "workspace_id": "W1",
+                    "model_id": "M1",
+                },
+            },
+        },
+        "customerb": {
+            "name": "CustomerB",
+            "shard": "eu9z",
+            "folder": "CustomerB",
+            "customer_id": "C2",
+            "models": {
+                "modelb": {
+                    "name": "ModelB",
+                    "raw_dir": "ModelB",
+                    "workspace_id": "W2",
+                    "model_id": "M2",
+                },
+            },
+        },
+    }
+    TWO_MODELS = registry.flatten(TWO_CUSTOMERS)
+
+    def test_customer_contradicting_a_composite_key_raises(self, monkeypatch):
+        """registry.resolve()'s composite-contradiction guard only fires if
+        --customer actually reaches it. Without forwarding, --customer
+        customera customerb:modelb silently exported CustomerB's model."""
+        monkeypatch.setattr(smd.registry, "MODELS", self.TWO_MODELS)
+        with pytest.raises(ValueError) as exc:
+            smd._main(["--customer", "customera", "customerb:modelb"])
+        msg = str(exc.value)
+        assert "customera" in msg and "customerb" in msg
+
+    @pytest.mark.parametrize("extra_args", [[], ["--full"], ["--ui-only"]],
+                             ids=["default-api", "full", "ui-only"])
+    def test_customer_naming_a_customer_without_the_bare_key_fails_closed(
+            self, monkeypatch, extra_args):
+        """A bare key unique to CustomerB must not resolve to CustomerB just
+        because --customer customera was (previously) never forwarded - it
+        must fail closed on 'customera:modelb' not configured, never fall
+        through to whichever customer actually configures 'modelb'. Checked
+        across all three export entry points, since each one previously
+        dropped the forwarded value independently."""
+        monkeypatch.setattr(smd.registry, "MODELS", self.TWO_MODELS)
+        with pytest.raises(ValueError) as exc:
+            smd._main(["--customer", "customera", "modelb", *extra_args])
+        msg = str(exc.value)
+        assert "customera:modelb" in msg
+        assert "not a configured shortcut" in msg
+
+    def test_unknown_customer_is_rejected_not_silently_ignored(self, monkeypatch):
+        """A typo'd --customer must be caught by resolve()'s validation
+        rather than silently falling back to alias resolution (which is
+        what happened while --customer never reached resolve_shortcut)."""
+        monkeypatch.setattr(smd.registry, "MODELS", self.TWO_MODELS)
+        with pytest.raises(ValueError) as exc:
+            smd._main(["--customer", "customerz", "modela"])
+        msg = str(exc.value)
+        assert "customerz" in msg and "not a configured customer" in msg

@@ -457,11 +457,12 @@ def emit_config(found, customer_key, shard):
     return "\n".join(lines)
 
 
-def download_model_exports(model, out_dir=None, headless_download_dir=None, name=None):
+def download_model_exports(model, out_dir=None, headless_download_dir=None, name=None,
+                           customer=None):
     """
     Pure-Selenium fallback: export all 13 model-settings grids through the UI.
     """
-    entry = registry.resolve_shortcut(model, name=name)
+    entry = registry.resolve_shortcut(model, customer=customer, name=name)
     model_name = entry.display_name
 
     out_dir = resolve_out_dir(entry, out_dir)
@@ -886,7 +887,8 @@ def _print_summary(model_name, results, mode):
     print(f"{'=' * 70}\n")
 
 
-def download_model_exports_api(model, out_dir=None, name=None, rest_only=False):
+def download_model_exports_api(model, out_dir=None, name=None, rest_only=False,
+                               customer=None):
     """Log in once (browser), then export the fast subset of model files:
       • 5 files over the REST API v2 (plain HTTP) — Line Items, Versions,
         Actions, Imports, Views.
@@ -897,7 +899,7 @@ def download_model_exports_api(model, out_dir=None, name=None, rest_only=False):
 
     Returns dict keyed by output filename -> {"ok", "rows", "path", "error"}.
     """
-    entry = registry.resolve_shortcut(model, name=name)
+    entry = registry.resolve_shortcut(model, customer=customer, name=name)
     model_id = entry.model_id
     model_name = entry.display_name
     out_dir = resolve_out_dir(entry, out_dir)
@@ -1166,7 +1168,7 @@ def _pull_legacy_via_api(browser, model_id, ws, out_dir, results):
             print(f"  [CLS] ERR {fn:22} {err}")
 
 
-def download_model_exports_full(model, out_dir=None, name=None):
+def download_model_exports_full(model, out_dir=None, name=None, customer=None):
     """Full 15-file export in ONE browser login:
       • Phase 1 — the 5 REST-API files over the Integration API (token auth,
         no browser involved).
@@ -1179,7 +1181,7 @@ def download_model_exports_full(model, out_dir=None, name=None):
     Any legacy grid that fails the classic-API path falls back to the
     local UI export path for that one grid, so coverage never regresses.
     """
-    entry = registry.resolve_shortcut(model, name=name)
+    entry = registry.resolve_shortcut(model, customer=customer, name=name)
     model_id = entry.model_id
     model_name = entry.display_name
     workspace_id = entry.workspace_id
@@ -1354,16 +1356,19 @@ def _main(argv=None):
                 "from its customer's registry entry")
 
     if args.ui_only:
-        results = download_model_exports(args.model, out_dir=args.out, name=args.name)
+        results = download_model_exports(args.model, out_dir=args.out, name=args.name,
+                                         customer=args.customer)
         produced = sum(1 for r in results.values() if r["ok"])
         sys.exit(0 if produced == len(EXPORT_TARGETS) else 1)
 
     if args.full:
-        results = download_model_exports_full(args.model, out_dir=args.out, name=args.name)
+        results = download_model_exports_full(args.model, out_dir=args.out, name=args.name,
+                                              customer=args.customer)
         expected = None
     else:
         results = download_model_exports_api(args.model, out_dir=args.out,
-                                             name=args.name, rest_only=args.rest_only)
+                                             name=args.name, rest_only=args.rest_only,
+                                             customer=args.customer)
         expected = 5 if args.rest_only else None
 
     produced = sum(1 for r in results.values() if r["ok"])

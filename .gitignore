@@ -9,3 +9,5 @@ __pycache__/
 /tools/models.py
 /.superpowers/
 /.claude/agents/
+/Clippings/
+/.postman/

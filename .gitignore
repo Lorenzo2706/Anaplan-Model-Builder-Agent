@@ -10,4 +10,7 @@ __pycache__/
 /.superpowers/
 /.claude/agents/
 /Clippings/
+/postman/
 /.postman/
+/index.md
+/log.md

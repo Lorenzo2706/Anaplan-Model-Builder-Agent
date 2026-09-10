@@ -5,7 +5,7 @@ domain may name a real customer — if you're about to add a fact tied to
 one customer's build, it belongs in `customers/<Name>/index.md` instead.
 
 ## Concepts
-- [[wiki/concepts/index|Concepts index]] — 22 core concept pages + 2 flat pages + Demand & Inventory Reference App sub-collection (15 chapters)
+- [[wiki/concepts/index|Concepts index]] — 22 core concept pages + 2 flat pages + Demand & Inventory Reference App sub-collection (15 chapters) + Integration API sub-collection (10 pages)
 
 ## Functions
 - [[wiki/functions/index|Functions index]] — all 147 Anaplan formula functions across 10 categories (Aggregation, Mapping, Time/Date, Logical, Numeric, Text, Financial, Trigonometry, Call Center, Misc)

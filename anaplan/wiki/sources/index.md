@@ -10,6 +10,11 @@ updated: 2026-08-31
 
 One page per ingested source, chronological (newest first). Each source page summarizes the raw document and points back at `raw/`.
 
+## 2026-09
+
+- [[wiki/sources/2026-09-09-anaplan-integration-api|Anaplan Integration API v2.0 — Anapedia Clipping Batch (70 files)]] — first-time ingest; new `wiki/concepts/integration-api/` sub-collection (10 pages)
+- [[wiki/sources/2026-09-09-anapedia-breakback|Anapedia — Breakback (dedicated page)]] — first-time ingest of the dedicated page; enriched the existing Breakback section on [[wiki/concepts/anaplan concepts/14_modules|Modules]] rather than creating a new page
+
 ## 2026-08
 
 - [[wiki/sources/2026-08-31-anapedia-variance-aggregation|Anapedia — VARP / VARS Aggregation Functions]] — first-time ingest, two new rows in [[wiki/functions/index|functions index]] and [[wiki/functions/categories/aggregation|aggregation category]]

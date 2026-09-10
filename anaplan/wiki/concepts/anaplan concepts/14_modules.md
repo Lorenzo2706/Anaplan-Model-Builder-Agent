@@ -3,9 +3,10 @@ title: Modules
 type: concept
 tags: [anaplan, modules, blueprint, configuration, cell-count, breakback]
 created: 2026-05-13
-updated: 2026-07-08
+updated: 2026-09-09
 sources:
   - raw/docs/Configure modules.md
+  - raw/docs/Breakback  Anapedia.md
 ---
 
 # Modules
@@ -72,6 +73,17 @@ The **Breakback** column in Modules sets the **default** for new line items. Ind
 
 > [!warning]
 > Breakback only works when the summary method is **SUM**. It has no effect on other summary methods.
+
+**Hold** is a Breakback feature that temporarily "holds" a cell's value during a Breakback distribution — use it to update totals without impacting one line item's value, or to change one line item's value without changing the overall total. Cells are also held automatically at their previous value when they're read-only for another reason (Selective Access, Dynamic Cell Access, or historical months in a rolling forecast) — Breakback skips them and redistributes across the remaining writable cells.
+
+Further constraints:
+
+- Breakback is restricted to totals on **simple hierarchies and the time dimension only** — it isn't permitted across several line items.
+- If leaf-level cells that don't already sum to zero are all zero at a summary level, entering a value there produces an **error**, not a proportional distribution (proportional/pro-rata spreading requires a non-zero basis to spread against; an all-zero basis with a non-zero total is only handled in the "evenly across leaf cells" case described above).
+- If a Breakback action affects more than **1,000,000 cells**, Anaplan displays a warning message before applying it.
+- Because Breakback can touch many cells at once, a module's **change history** only records the cell change that originally triggered it, plus the total count of affected cells — not each individual affected cell.
+
+(see [[../../sources/2026-09-09-anapedia-breakback|2026-09-09 Anapedia Breakback ingest]])
 
 ---
 

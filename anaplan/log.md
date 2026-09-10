@@ -36,3 +36,41 @@ Updated:
 - wiki/functions/categories/index.md, index.md — function count 145 → 147
 - wiki/sources/index.md — new 2026-08 section, 5 entries
 
+## [2026-09-09] ingest | Anaplan Integration API v2.0 — Anapedia clipping batch (70 files) from Clippings/
+Source: 70 Anapedia web clippings landed in `Clippings/` (Integration API v2.0 documentation set — getting started, object model, system behavior, resource structure, request/response formats, auth/permissions, retry strategy, workspaces/models incl. lifecycle, model calendar/versions, lists, modules/views/line items, cell data read/write, large-volume reads, file transfer, users). All generic/customer-agnostic per user instruction — moved to `raw/docs/` (Clippings/ is gitignored, files were untracked). First-time ingest; no prior Integration API content existed in this wiki.
+
+Created:
+- wiki/concepts/integration-api/ — new sub-collection: index.md + 10 pages (01_overview, 02_authentication-and-permissions, 03_reliability-retries-rate-limits, 04_workspaces-and-models, 05_model-calendar-and-versions, 06_lists-and-dimension-items, 07_modules-views-line-items, 08_cell-data-read-write, 09_bulk-and-large-volume-data, 10_users)
+- wiki/sources/2026-09-09-anaplan-integration-api.md
+
+Updated:
+- raw/docs/ — 70 clipping files moved in from Clippings/
+- wiki/concepts/index.md — added Integration API sub-collection line
+- index.md (anaplan) — Concepts summary line updated
+- wiki/sources/index.md — new 2026-09 section
+
+Design note: per the function-pages policy precedent, did not create one wiki page per raw doc (several raw docs are one-paragraph stub/intro pages with no content beyond a topic sentence). Grouped into 10 workflow-oriented pages instead, each citing every raw doc it draws from.
+
+## [2026-09-09] ingest | Anapedia — Breakback (dedicated page) from Clippings/
+Source: 1 Anapedia clipping (`Breakback  Anapedia.md`) — a re-clip of a page already tracked in git from an earlier scraper pass but never actually ingested into the wiki. Moved to `raw/docs/` alongside the Integration API batch above (same domain, unrelated topic — processed as a separate batch per Phase 1 grouping).
+
+Breakback was already covered as a section in wiki/concepts/anaplan concepts/14_modules.md (sourced from `raw/docs/Configure modules.md`). Per "prefer updating an existing page over creating a near-duplicate," enriched that section instead of creating a new page: added the Hold feature, the simple-hierarchy/time-dimension-only restriction, the 1,000,000-cell warning threshold, and the change-history behavior.
+
+Created:
+- wiki/sources/2026-09-09-anapedia-breakback.md
+
+Updated:
+- wiki/concepts/anaplan concepts/14_modules.md — Breakback section extended; sources: frontmatter gained raw/docs/Breakback  Anapedia.md; updated date bumped
+- wiki/sources/index.md — added to the new 2026-09 section
+
+## [2026-09-10] lint | Wiki sanity check
+Scanned the shared Anaplan index cascade and all 114 non-raw Markdown files, with cross-domain targets resolved.
+
+Issues found and fixed:
+1. `wiki/concepts/index.md` still described two sub-collections after the Integration API collection was added; corrected it to three sub-collections and two flat pages.
+2. Restored the missing KWS and Stedin entries in the vault-root customer router.
+
+Issues flagged for manual review:
+- `wiki/functions/index.md` still links ACOSH to missing raw clipping `raw/docs/ACOSH  Anapedia.md`; ingest the source or remove the raw-source link.
+
+Verified clean: page/function/category counts, orphan-page coverage, companion-file documentation, and shared-link resolution. No unresolved Anaplan-domain contradictions found beyond the already-flagged missing ACOSH source.

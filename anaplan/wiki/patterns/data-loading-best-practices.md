@@ -3,7 +3,7 @@ title: Data Loading Best Practices
 type: pattern
 tags: [anaplan, pattern, data-hub, data-loading, save-view, best-practices]
 created: 2026-08-10
-updated: 2026-08-10
+updated: 2026-09-11
 sources: []
 ---
 
@@ -35,6 +35,12 @@ moves.
 Load directly into properties and mark items as uniquely identified by a **combination** of
 properties. Less efficient: requires clearing and a full reload every time, since there's no
 single key to diff against.
+
+When the file being loaded this way is a **hierarchy source** — one row per leaf item, with
+each hierarchy level in its own column — see
+[[Building a Hierarchy from an Uploaded File (DataHub → Spoke)|Hierarchy Load from File]] for
+the load-module + `ISFIRSTOCCURRENCE` + per-level-save-view recipe that turns this shape into
+a proper composite hierarchy in the Spoke model.
 
 ## Design and process hygiene
 

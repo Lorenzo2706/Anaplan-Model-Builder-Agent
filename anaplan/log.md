@@ -74,3 +74,21 @@ Issues flagged for manual review:
 - `wiki/functions/index.md` still links ACOSH to missing raw clipping `raw/docs/ACOSH  Anapedia.md`; ingest the source or remove the raw-source link.
 
 Verified clean: page/function/category counts, orphan-page coverage, companion-file documentation, and shared-link resolution. No unresolved Anaplan-domain contradictions found beyond the already-flagged missing ACOSH source.
+
+## [2026-09-11] ingest | Field notes — Hierarchy load from file (DataHub → Spoke)
+Source: dictated by Lorenzo Giori (field experience, not a clipping) — no existing wiki page covered this specific unique-key vs. composite-key/numbered-list branch, or the per-level `ISFIRSTOCCURRENCE` save-view technique for hierarchy sources. Mid-ingest, user corrected an over-generalization: a numbered load list is only needed as a workaround when the file has no single unique key (composite-properties key); a file with a unique key uses a normal named list, whether loading straight to the Spoke model or staging through a DataHub load list.
+
+Created:
+- raw/docs/2026-09-11-hierarchy-load-from-file-fieldnotes.md
+- wiki/patterns/hierarchy-load-from-file.md ("Building a Hierarchy from an Uploaded File (DataHub → Spoke)")
+- wiki/sources/2026-09-11-hierarchy-load-from-file.md
+
+Updated:
+- wiki/patterns/data-loading-best-practices.md — cross-link added under "Without a unique key" to the new hierarchy-specific page
+- wiki/patterns/index.md — new row, standalone pattern count 7 → 8
+- index.md (anaplan) — Patterns summary line updated
+- wiki/sources/index.md — new 2026-09 entry
+
+Also produced a standalone step-by-step Markdown "manual" (delivered directly to the user, not stored in the wiki — `anaplan/` has no `analyses/` folder for non-wiki deliverables).
+
+No issues flagged — wiki is consistent.

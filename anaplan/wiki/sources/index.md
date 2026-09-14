@@ -3,7 +3,7 @@ title: Sources — Index
 type: index
 tags: [anaplan, index, sources]
 created: 2026-05-27
-updated: 2026-08-31
+updated: 2026-09-11
 ---
 
 # Sources — Index
@@ -12,6 +12,7 @@ One page per ingested source, chronological (newest first). Each source page sum
 
 ## 2026-09
 
+- [[wiki/sources/2026-09-11-hierarchy-load-from-file|Field Notes — Hierarchy Load from File (DataHub → Spoke)]] — dictated field notes, not an Anapedia clipping; new standalone pattern page
 - [[wiki/sources/2026-09-09-anaplan-integration-api|Anaplan Integration API v2.0 — Anapedia Clipping Batch (70 files)]] — first-time ingest; new `wiki/concepts/integration-api/` sub-collection (10 pages)
 - [[wiki/sources/2026-09-09-anapedia-breakback|Anapedia — Breakback (dedicated page)]] — first-time ingest of the dedicated page; enriched the existing Breakback section on [[wiki/concepts/anaplan concepts/14_modules|Modules]] rather than creating a new page
 

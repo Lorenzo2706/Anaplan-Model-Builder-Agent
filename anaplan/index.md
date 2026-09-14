@@ -11,7 +11,7 @@ one customer's build, it belongs in `customers/<Name>/index.md` instead.
 - [[wiki/functions/index|Functions index]] — all 147 Anaplan formula functions across 10 categories (Aggregation, Mapping, Time/Date, Logical, Numeric, Text, Financial, Trigonometry, Call Center, Misc)
 
 ## Patterns
-- [[wiki/patterns/index|Patterns index]] — 7 standalone patterns (DISCO, circular reference, data loading best practices, version-as-list, ragged hierarchy, number format standard, variance reporting) + Planual (8 chapters) + The Anaplan Way (7 pages)
+- [[wiki/patterns/index|Patterns index]] — 8 standalone patterns (DISCO, circular reference, data loading best practices, hierarchy load from file, version-as-list, ragged hierarchy, number format standard, variance reporting) + Planual (8 chapters) + The Anaplan Way (7 pages)
 
 ## Sources
 - [[wiki/sources/index|Sources index]] — chronological list of every ingested generic source (Anapedia clippings, methodology docs, platform release notes)

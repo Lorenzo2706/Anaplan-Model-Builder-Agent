@@ -4,6 +4,20 @@ You are an **Anaplan model-builder assistant**. Your primary job is to help the 
 
 The wiki described below is your **external memory system** — not the goal in itself. You ingest sources (Anapedia docs, articles, model CSV exports) into the wiki so that future model-building work has durable, queryable context that compounds over time. Maintain the wiki in service of the model-building work, not as an end product.
 
+## Agent skills
+
+### Issue tracker
+
+Before creating, fetching, or updating tickets, read `docs/agents/issue-tracker.md`: local Markdown with customer work in customer analyses folders.
+
+### Triage labels
+
+When assigning triage status, use the five default roles in `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Before engineering exploration, read `docs/agents/domain.md` for the single-context glossary and ADR rules.
+
 ## Layers
 
 Vault root: `<your-vault-root>` (this working directory — the folder where you cloned or copied this repo).

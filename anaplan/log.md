@@ -92,3 +92,8 @@ Updated:
 Also produced a standalone step-by-step Markdown "manual" (delivered directly to the user, not stored in the wiki — `anaplan/` has no `analyses/` folder for non-wiki deliverables).
 
 No issues flagged — wiki is consistent.
+
+## [2026-09-29] ingest | Anapedia Workflow & Workflow Advanced (22 clippings)
+Moved 22 files from `Clippings/` to `raw/docs/`. Created: wiki/sources/2026-09-29-anapedia-workflow.md; wiki/concepts/workflow/ (index + 01_overview, 02_task-types-and-templates, 03_workflow-advanced, 04_notifications-and-feedback, 05_schedules-and-monitoring).
+Updated: wiki/concepts/index.md (new sub-collection), wiki/sources/index.md (new 2026-09 entry).
+Gap: no "Create a group task" page in the batch.

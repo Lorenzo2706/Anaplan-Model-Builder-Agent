@@ -3,18 +3,19 @@ title: Concepts — Index
 type: index
 tags: [anaplan, index, concepts]
 created: 2026-05-27
-updated: 2026-09-10
+updated: 2026-09-29
 ---
 
 # Concepts — Index
 
-Top-level navigation for foundational Anaplan concepts. Three sub-collections plus two flat pages.
+Top-level navigation for foundational Anaplan concepts. Four sub-collections plus two flat pages.
 
 ## Sub-collections
 
 - [[wiki/concepts/anaplan concepts/index|Anaplan core concepts]] — 22 pages: dimensions, lists, line items, hierarchies, time, versions, access/security, roles, picklists, modules, actions, etc.
 - [[wiki/concepts/anaplan-applications/demand-and-inventory/index|Demand & Inventory Reference App]] — 15-chapter walkthrough (Data Hub → Demand Analysis → Stat Forecasting → Demand Planning → Reporting → Inventory).
 - [[wiki/concepts/integration-api/index|Integration API]] — 10 pages covering the Anaplan Integration API v2.0 (REST): auth, retries/rate limits, workspaces/models, lists, modules/views/line items, cell data read/write, bulk & large-volume data, users.
+- [[wiki/concepts/workflow/index|Workflow]] — 5 pages on UX Workflow & Workflow Advanced: task types, templates, parallel/branching/value-based/send-back, batch approvals, notifications, schedules, monitoring.
 
 ## Flat pages
 

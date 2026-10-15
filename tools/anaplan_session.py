@@ -64,11 +64,14 @@ class AnaplanEmptyGridError(AnaplanError):
     (common in sparse Polaris models), NOT an error condition to hide."""
 
 
-# The Integration API is served ONLY from this global host. Pinned, not a
-# pattern: an app-shard URL must fail the allowlist, not merely 401 later.
+# The Integration API is served from the global host api.anaplan.com or, for a
+# data centre that is its own auth+API realm, from <region>.api.anaplan.com
+# (e.g. eu3; see registry.api_hosts_for_region). Deliberately narrow: an
+# app-shard URL (eu2a.app.anaplan.com) must fail the allowlist, not merely 401
+# later. On top of this, each AnaplanSession is pinned to its own base_url.
 API_HOST = "https://api.anaplan.com"
 
-_HOST = re.escape(API_HOST)
+_HOST = r"https://(?:[a-z]{2}\d{1,2}\.)?api\.anaplan\.com"
 _MODEL = r"[A-Za-z0-9]+"
 
 _ALLOWED_URL_PATTERNS = (
@@ -133,15 +136,21 @@ def classify_response(status_code, content_type, body_text, url=""):
 class AnaplanSession:
     """Authenticated read-only HTTP. `get` is the ONLY verb by design."""
 
-    def __init__(self, base_url, requests_session):
+    def __init__(self, base_url, requests_session, auth_url=None):
         self.base_url = base_url.rstrip("/")
         self._sess = requests_session
+        # The token endpoint paired with base_url; a refresh must reuse it, or
+        # a regional session silently swaps in a global token and gets 401.
+        self._auth_url = auth_url
         self._refreshed = False
 
     def _refresh(self):
         """Swap in a session carrying a fresh Integration-API token."""
         import scrape_model_data
-        self._sess = scrape_model_data._api_session()
+        if self._auth_url:
+            self._sess = scrape_model_data._api_session(self._auth_url)
+        else:
+            self._sess = scrape_model_data._api_session()
 
     def get(self, url, timeout=180):
         """GET an allowlisted URL and return parsed JSON. Raises a typed
@@ -150,7 +159,14 @@ class AnaplanSession:
             raise AnaplanURLNotAllowedError(
                 f"Refusing to call {url!r}: not on the read-only allowlist. "
                 f"This tool may only read views, view metadata, lists, and list "
-                f"items, and only on {API_HOST}."
+                f"items, and only on an Integration API host "
+                f"({API_HOST} or https://<region>.api.anaplan.com)."
+            )
+        if not url.startswith(self.base_url + "/"):
+            raise AnaplanURLNotAllowedError(
+                f"Refusing to call {url!r}: this session's token belongs to "
+                f"{self.base_url}. A token is only valid on the API host it "
+                f"was issued for (global vs regional realm)."
             )
         try:
             resp = self._sess.get(url, timeout=timeout)
@@ -178,11 +194,21 @@ class AnaplanSession:
             pass
 
 
-def open_session():
+def open_session(api_base=None, auth_url=None):
     """Return an AnaplanSession backed by a fresh Integration-API token.
+
+    Pass the model's paired hosts (`resolved.api_base`, `resolved.auth_url`);
+    omitted, both default to the global pair. Passing only one is refused:
+    a regional API host with a global token is a guaranteed 401.
 
     No cache and no browser: the token exchange takes about a second, so
     caching would add a credential-equivalent file on disk for no real gain.
     """
     import scrape_model_data
-    return AnaplanSession(scrape_model_data.API_BASE, scrape_model_data._api_session())
+    if (api_base is None) != (auth_url is None):
+        raise ValueError("open_session() needs api_base and auth_url together "
+                         "(or neither, for the global pair)")
+    api_base = api_base or scrape_model_data.API_BASE
+    auth_url = auth_url or scrape_model_data.AUTH_TOKEN_URL
+    return AnaplanSession(api_base, scrape_model_data._api_session(auth_url),
+                          auth_url=auth_url)

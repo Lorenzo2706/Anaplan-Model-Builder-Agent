@@ -42,6 +42,13 @@ authenticate the documented Integration-API way:
       -> tokenInfo.tokenValue
     GET  https://api.anaplan.com/2/0/...               (Authorization: AnaplanAuthToken ...)
 
+Those are the GLOBAL hosts. A customer whose data centre is its own auth+API
+realm declares `api_region` in models.py (e.g. 'eu3' ->
+eu3.auth.anaplan.com + eu3.api.anaplan.com); the pair is always derived
+together by registry.api_hosts_for_region(). Diagnosed 2026-10-09: the global
+token is 401 on the eu3 API host, and the global API host 404s every eu3 model
+- which had been misread for a month as an Anaplan "entitlement gap".
+
 History / why this changed (2026-08-14). An earlier version of this module tried
 to authenticate the REST calls by lifting the logged-in browser's session
 cookies into a `requests.Session` and calling the **app shard**
@@ -545,16 +552,22 @@ def download_model_exports(model, out_dir=None, headless_download_dir=None, name
 #  Integration API v2 session (token auth, no browser)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# The Integration API is served from this global host. NOT the regional app shard
+# Global Integration API hosts - the DEFAULT pair. NOT the regional app shard
 # (eu2a/us1a/...): the app shard redirects /2/0/ to the global endpoint, which
 # rejects web-session cookies with 401. See the Authentication note at the top.
-API_BASE = "https://api.anaplan.com"
+# Some data centres (e.g. eu3) are a separate auth+API realm and need their own
+# pair; each model's pair comes from registry (`entry.api_base` /
+# `entry.auth_url`), so call sites pass those rather than these constants.
+API_BASE = registry.GLOBAL_API_BASE
 
-AUTH_TOKEN_URL = "https://auth.anaplan.com/token/authenticate"
+AUTH_TOKEN_URL = registry.GLOBAL_AUTH_URL
 
 
-def _anaplan_token():
+def _anaplan_token(auth_url=AUTH_TOKEN_URL):
     """Exchange the .env credentials for an Integration-API bearer token.
+
+    `auth_url` must be the token endpoint paired with the API host the token
+    will be used on: a global token is 401 on eu3.api.anaplan.com.
 
     Returns the token string. Raises RuntimeError with the tenant's own
     statusMessage on failure, so a credential/permission problem is never
@@ -571,7 +584,7 @@ def _anaplan_token():
         )
     basic = base64.b64encode(f"{user}:{pwd}".encode("utf-8")).decode("ascii")
     try:
-        r = requests.post(AUTH_TOKEN_URL,
+        r = requests.post(auth_url,
                           headers={"Authorization": f"Basic {basic}"}, timeout=60)
     except Exception as e:
         raise RuntimeError(f"token endpoint unreachable: {e}") from e
@@ -594,15 +607,16 @@ def _anaplan_token():
     return token
 
 
-def _api_session():
-    """A requests.Session pre-authenticated for https://api.anaplan.com/2/0/.
+def _api_session(auth_url=AUTH_TOKEN_URL):
+    """A requests.Session pre-authenticated for the API host paired with
+    `auth_url` (global by default; pass `entry.auth_url` for a model).
 
     No browser required. The token is valid ~30 min, which comfortably covers a
     full export run.
     """
     sess = requests.Session()
     sess.headers.update({
-        "Authorization": f"AnaplanAuthToken {_anaplan_token()}",
+        "Authorization": f"AnaplanAuthToken {_anaplan_token(auth_url)}",
         "Accept": "application/json",
     })
     return sess
@@ -921,8 +935,8 @@ def download_model_exports_api(model, out_dir=None, name=None, rest_only=False,
     results = {}
 
     # ── Phase 1: REST pull over the Integration API (token auth, no browser) ───
-    sess = _api_session()
-    _pull_api_files(sess, API_BASE, model_id, out_dir, results)
+    sess = _api_session(entry.auth_url)
+    _pull_api_files(sess, entry.api_base, model_id, out_dir, results)
 
     if rest_only:
         _print_summary(model_name, results, "REST-only mode")
@@ -1206,10 +1220,10 @@ def download_model_exports_full(model, out_dir=None, name=None, customer=None):
     results = {}
     try:
         # ── Phase 1: REST pull over the Integration API (token auth, no browser)
-        sess = _api_session()
-        _pull_api_files(sess, API_BASE, model_id, out_dir, results)
+        sess = _api_session(entry.auth_url)
+        _pull_api_files(sess, entry.api_base, model_id, out_dir, results)
 
-        browser = scraper_ux._create_browser(download_dir)
+        browser =scraper_ux._create_browser(download_dir)
         browser.set_script_timeout(120)
         scraper_ux.login(browser, config)
 

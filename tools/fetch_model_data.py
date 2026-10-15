@@ -679,7 +679,7 @@ def main(argv=None):
     # was ever created, so there is nothing for `finally: session.close()` to
     # leak and no risk of `finally` referencing an unbound `session` name.
     try:
-        session = anaplan_session.open_session()
+        session = anaplan_session.open_session(resolved.api_base, resolved.auth_url)
     except RuntimeError as e:
         print(f"ERROR (auth): {e}\nToken refresh failed. Check .env credentials.",
               file=sys.stderr)

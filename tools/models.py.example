@@ -28,6 +28,14 @@ SHAPE
             "shard":       bare Anaplan app shard token, e.g. "eu2a", "eu3"
             "folder":      folder under customers/ holding this customer's vault
             "customer_id": tenant GUID
+            "api_region":  OPTIONAL bare region token, e.g. "eu3", for a
+                           data centre that is its own Integration API realm
+                           -> <region>.auth.anaplan.com + <region>.api.anaplan.com.
+                           Omit for the global auth.anaplan.com +
+                           api.anaplan.com pair (works for e.g. eu2a). Symptom
+                           that you need it: token exchange succeeds but every
+                           /2/0/ model call is 404 and the workspace is not
+                           listed by GET /2/0/workspaces.
             "models": {
                 "<model_key>": {
                     "name":            display name,

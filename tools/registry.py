@@ -51,7 +51,11 @@ MODEL_KEYS = ("name", "raw_dir", "workspace_id", "model_id")
 # Present on every flattened entry, defaulted when the author omits them.
 # `engine` defaults to "unknown" rather than to either engine: a wrong engine
 # label is a formula-correctness hazard, "unknown" is visibly wrong.
-OPTIONAL_MODEL_KEYS = {"engine": "unknown", "workspace_label": "PRODUCTION"}
+#
+# `api_region` defaults to "" = the global Integration API hosts. It is usually
+# declared once on the customer and inherited; see api_hosts_for_region().
+OPTIONAL_MODEL_KEYS = {"engine": "unknown", "workspace_label": "PRODUCTION",
+                       "api_region": ""}
 
 # Customer and model keys become halves of a "customer:model" composite, so
 # neither may contain ':' or whitespace.
@@ -200,6 +204,40 @@ def app_url_for_shard(shard):
     return f"https://{token}.app.anaplan.com/"
 
 
+# Integration API hosts. Most tenants are served by the global pair, but some
+# data centres are a separate auth+API realm: an eu3 tenant proved this live on
+# 2026-10-09 - a token from the global auth host is 401 on eu3.api.anaplan.com,
+# and the global API host 404s every eu3 model. NOT derived from the shard: an
+# eu2a tenant works on the global pair, and which data centres need their own
+# realm is not documented. So it is an explicit per-customer field, and the
+# auth and API hosts are derived TOGETHER from it - a mismatched pair is
+# exactly the failure this exists to prevent.
+GLOBAL_API_BASE = "https://api.anaplan.com"
+GLOBAL_AUTH_URL = "https://auth.anaplan.com/token/authenticate"
+
+_API_REGION_RE = re.compile(r"^[a-z]{2}\d{1,2}$")
+
+
+def api_hosts_for_region(api_region):
+    """Return (api_base, auth_url) for `api_region` ('' -> the global pair).
+
+    Raises ValueError on anything that is not a bare region token like 'eu3',
+    so a URL or app-shard token pasted into models.py fails at resolve time
+    rather than as a 401/404 mid-export.
+    """
+    token = (api_region or "").strip()
+    if not token:
+        return GLOBAL_API_BASE, GLOBAL_AUTH_URL
+    if not _API_REGION_RE.match(token):
+        raise ValueError(
+            f"api_region {api_region!r} is not a bare Anaplan region token "
+            f"(expected e.g. 'eu3', or omit it for the global hosts). Not a "
+            f"URL, a hostname, or an app shard like 'eu2a'."
+        )
+    return (f"https://{token}.api.anaplan.com",
+            f"https://{token}.auth.anaplan.com/token/authenticate")
+
+
 @dataclass(frozen=True)
 class ResolvedModel:
     """One fully resolved model: customer fields merged with model fields.
@@ -222,10 +260,21 @@ class ResolvedModel:
     model_id: str
     engine: str = "unknown"
     workspace_label: str = "PRODUCTION"
+    api_region: str = ""
 
     @property
     def app_url(self):
         return app_url_for_shard(self.shard)
+
+    @property
+    def api_base(self):
+        """Integration API base URL (no trailing slash) for this model."""
+        return api_hosts_for_region(self.api_region)[0]
+
+    @property
+    def auth_url(self):
+        """Token endpoint paired with api_base. Never mix with another pair."""
+        return api_hosts_for_region(self.api_region)[1]
 
     @property
     def settings_url(self):
@@ -316,6 +365,7 @@ def resolve(key, flat, customer=None, name=None):
 
     entry = flat[shortcut]
     app_url_for_shard(entry["shard"])          # fail here, not mid-login
+    api_hosts_for_region(entry["api_region"])  # likewise for the API hosts
     fields = {k: entry[k] for k in _RESOLVED_FIELDS if k in entry}
     fields["display_name"] = name or entry["name"]
     return ResolvedModel(**fields)

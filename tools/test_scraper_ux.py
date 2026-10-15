@@ -224,3 +224,48 @@ def test_ui_filters_sheet_reads_new_shape_grids():
     names = {LI_A1: "A one", LI_A2: "A two"}
     table = scraper_ux._build_ui_filters_table([_page(NEW_SHAPE_BOARD)], modules, names)
     assert table[1:] == [["Page", "Mod A", "", False, "A two", True]]
+
+
+# The Actions-detail sheet. The Modeling UI has no Export button on the
+# Imports grid, so its Source/Target columns come from the classic
+# core-webapp export of that grid (CSV text, first header cell blank, CRLF
+# rows - as the servlet returned it live on an eu3 tenant 2026-10-15) and are
+# merged onto the REST action list, which still supplies every non-import row.
+IMPORTS_GRID_CSV = (
+    ",Source Label,Source Object,Source Type,Target Object,Target Type,Production Data\r\n"
+    "Load Mod X,Other Model / 'SRC'.'SV 1',Other Model / 'SRC'.'SV 1 full',SAVED VIEW,Mod X,MODULE,false\r\n"
+    "Load List Y,y.csv,y.csv,FILE,List Y,LIST,true\r\n"
+)
+
+REST_ACTIONS = [
+    {"__atype": "imports", "name": "Load Mod X", "importType": "MODULE_DATA",
+     "importDataSourceId": ""},
+    {"__atype": "imports", "name": "Load List Y", "importType": "HIERARCHY_DATA",
+     "importDataSourceId": "113000000001"},
+    {"__atype": "exports", "name": "Export Z"},
+    {"__atype": "processes", "name": "Run all"},
+]
+
+
+def test_actions_detail_fills_import_rows_from_imports_grid():
+    table = scraper_ux._build_actions_detail(REST_ACTIONS, IMPORTS_GRID_CSV)
+    rows = {r[0]: r for r in table[1:]}
+    assert rows["Load Mod X"] == [
+        "Load Mod X", "imports", "Other Model / 'SRC'.'SV 1'",
+        "Other Model / 'SRC'.'SV 1 full'", "SAVED VIEW", "Mod X", "MODULE", "false"]
+    assert rows["Load List Y"] == [
+        "Load List Y", "imports", "y.csv", "y.csv", "FILE", "List Y", "LIST", "true"]
+
+
+def test_actions_detail_keeps_non_import_rows_from_rest():
+    table = scraper_ux._build_actions_detail(REST_ACTIONS, IMPORTS_GRID_CSV)
+    assert table[0] == scraper_ux._build_actions_detail_fallback([])[0]
+    assert [r[0] for r in table[1:]] == ["Load Mod X", "Load List Y", "Export Z", "Run all"]
+    rows = {r[0]: r for r in table[1:]}
+    assert rows["Export Z"] == ["Export Z", "exports", "", "", "SAVED VIEW", "", "FILE", ""]
+    assert rows["Run all"] == ["Run all", "processes", "", "", "", "", "", ""]
+
+
+def test_actions_detail_without_grid_is_the_rest_fallback():
+    assert (scraper_ux._build_actions_detail(REST_ACTIONS, None)
+            == scraper_ux._build_actions_detail_fallback(REST_ACTIONS))

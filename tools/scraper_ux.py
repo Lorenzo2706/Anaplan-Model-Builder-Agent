@@ -19,6 +19,7 @@ Configuration: copy .env.example to .env and fill in your own values.
 import csv
 import getpass
 import glob
+import io
 import json
 import logging
 import os
@@ -659,123 +660,64 @@ def _wait_for_download(download_dir: str, before_files: set, timeout: int = 60) 
     return None
 
 
-def _parse_downloaded_file(filepath: str) -> tuple[list, list]:
-    ext = os.path.splitext(filepath)[1].lower()
-    if ext in (".xlsx", ".xls"):
-        from openpyxl import load_workbook as _lw
-        wb = _lw(filepath, read_only=True, data_only=True)
-        ws = wb.active
-        all_rows = [list(r) for r in ws.iter_rows(values_only=True)]
-        wb.close()
-        if not all_rows:
-            return [], []
-        return [str(h) if h is not None else "" for h in all_rows[0]], all_rows[1:]
-    else:
-        with open(filepath, "r", encoding="utf-8-sig", errors="replace") as f:
-            reader = csv.reader(f)
-            all_rows = list(reader)
-        if not all_rows:
-            return [], []
-        return all_rows[0], all_rows[1:]
+# The model-settings Imports grid (Actions > Imports) is where an import's
+# source and target live, but the Modeling UI gives that grid no Export button.
+# The classic core-webapp export servlet serves it all the same, exactly like
+# the legacy grids in scrape_model_data; this is the viewDefinition the client
+# itself sends when that tab opens (captured live on an eu3 tenant 2026-10-15).
+_IMPORTS_GRID_VIEW_DEFINITION = {
+    "type": "MODEL_DEFINITION",
+    "staticContextIdentifiers": [],
+    "columnSizes": {
+        "customWidthsByLineItem": [
+            {"identifier": "_4000002402_", "width": 100},
+            {"identifier": "_4000002404_", "width": 100},
+            {"identifier": "_4000002406_", "width": 100},
+        ],
+        "customWidthsByStyle": [],
+        "defaultColumnWidth": 150,
+        "rowLabelWidth": 440,
+    },
+    "rows": "_SYSTEM_AXIS_IDENTIFIER.IMPORT_ALL",
+    "columns": "_SYSTEM_AXIS_IDENTIFIER.IMPORT_DEFINITION_PROPERTY",
+    "pages": [],
+}
 
 
-def _click_export_button(browser: webdriver.Remote, timeout: int = 15) -> bool:
-    selectors = [
-        "//button[normalize-space()='Export']",
-        "//a[normalize-space()='Export']",
-        "//button[contains(normalize-space(.), 'Export')]",
-        "//*[@role='button'][contains(normalize-space(.), 'Export')]",
-        "//button[@aria-label='Export']",
-        "//button[@title='Export']",
-        "//*[@data-action='export']",
-        "//*[@data-testid='export-button']",
-    ]
-    for sel in selectors:
-        try:
-            btn = WebDriverWait(browser, timeout).until(
-                EC.element_to_be_clickable((By.XPATH, sel))
-            )
-            browser.execute_script("arguments[0].scrollIntoView(true);", btn)
-            time.sleep(0.3)
-            browser.execute_script("arguments[0].click();", btn)
-            return True
-        except Exception:
-            continue
-    return False
-
-
-def _confirm_export_dialog(browser: webdriver.Remote):
-    try:
-        btn = WebDriverWait(browser, 6).until(
-            EC.element_to_be_clickable((By.XPATH,
-                "//button[normalize-space()='OK' or "
-                "normalize-space()='Download' or "
-                "normalize-space()='Export' or "
-                "normalize-space()='CSV' or "
-                "normalize-space()='Bevestigen']"
-            ))
-        )
-        browser.execute_script("arguments[0].click();", btn)
-        time.sleep(1)
-    except Exception:
-        pass
-
-
-def _try_modeling_section_export(
-    browser: webdriver.Remote,
-    model_new_url: str,
-    section: str,
-    download_dir: str,
-    extra_wait: int = 5,
-    download_timeout: int = 60,
-) -> tuple[list, list]:
-    url_candidates = [
-        f"{model_new_url}/model-settings/{section}",
-        f"{model_new_url}/{section}",
-        f"{model_new_url}/settings/{section}",
-        f"{model_new_url}/model-settings",
-    ]
-
-    before_files = set(glob.glob(os.path.join(download_dir, "*")))
-    page_loaded  = False
-
-    for url in url_candidates:
-        try:
-            browser.get(url)
-            WebDriverWait(browser, 8).until(
-                EC.any_of(
-                    EC.presence_of_element_located((By.XPATH,
-                        "//button[contains(normalize-space(.), 'Export')]")),
-                    EC.presence_of_element_located((By.TAG_NAME, "table")),
-                    EC.presence_of_element_located((By.XPATH,
-                        "//*[contains(@class,'ag-root')]")),
-                    EC.presence_of_element_located((By.XPATH,
-                        "//*[contains(@class,'virtualized')]")),
-                )
-            )
-            page_loaded = True
-            break
-        except Exception:
-            continue
-
-    if not page_loaded:
-        return [], []
-
-    time.sleep(min(extra_wait, 4))
-
-    if not _click_export_button(browser, timeout=8):
-        return [], []
-
-    _confirm_export_dialog(browser)
-
-    downloaded = _wait_for_download(download_dir, before_files, timeout=download_timeout)
-    if not downloaded:
-        return [], []
+def _export_imports_grid(browser: webdriver.Remote, model_new_url: str,
+                         model_id: str, ws_guid: str) -> str | None:
+    """Export the model-settings Imports grid as CSV text over the classic
+    core-webapp API, reusing scrape_model_data's proven jsonrpc + servlet chain.
+    Returns None (and logs why) on any failure; never raises."""
+    import scrape_model_data as smd  # lazy: scrape_model_data imports this module
 
     try:
-        return _parse_downloaded_file(downloaded)
-    except Exception:
-        return [], []
+        browser.get(f"{model_new_url}/model-settings")
+        if not smd.enter_shell(browser, timeout=30) or not smd.enter_grid(browser, 20):
+            logging.warning("Imports grid: could not open the model-settings grid.")
+            return None
+        origin = browser.execute_script("return window.location.origin;")
+        jsonrpc, servlet = smd._core_webapp_urls(origin, ws_guid)
+        mdsn, csid = smd._capture_session_params(browser)
+        if mdsn is None or csid is None:
+            logging.warning("Imports grid: could not capture the classic session params.")
+            return None
+        smd.enter_grid(browser, 12)
+        res = browser.execute_async_script(smd._LEGACY_CHAIN_JS, {
+            "model_id": model_id, "ws": ws_guid, "mdsn": mdsn, "csid": csid,
+            "jsonrpc": jsonrpc, "servlet": servlet,
+            "vd": _IMPORTS_GRID_VIEW_DEFINITION, "entityId": "Imports",
+        })
+    except Exception as e:
+        logging.warning("Imports grid: classic export failed: %s", e)
+        return None
+
+    if res.get("servlet_status") == 200 and "csv" in str(res.get("ct")) and res.get("csv"):
+        return res["csv"]
+    logging.warning("Imports grid: classic export returned vrs=%s servlet=%s ct=%s error=%s",
+                    res.get("vrs_status"), res.get("servlet_status"), res.get("ct"),
+                    res.get("error"))
+    return None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -817,34 +759,39 @@ def _build_actions_detail_fallback(all_actions_raw: list) -> list:
     return table
 
 
-def _build_actions_detail_from_download(headers: list, rows: list) -> list:
-    def _find(row_dict, *candidates):
-        for c in candidates:
-            v = row_dict.get(c)
-            if v not in (None, ""):
-                return str(v)
-        return ""
+# Imports-grid column -> Actions-detail column index. Source is the grid's
+# Source Label (a file name, or "<model> / <view>" for a model-to-model import).
+_IMPORTS_GRID_COLUMNS = {
+    "Source Label":    2,
+    "Source Object":   3,
+    "Source Type":     4,
+    "Target Object":   5,
+    "Target Type":     6,
+    "Production Data": 7,
+}
 
-    table = [[
-        "Action Name", "Action Type",
-        "Source", "Source Object", "Source Type",
-        "Target Object", "Target Type",
-        "Production Data",
-    ]]
-    for row_list in rows:
-        if not any(v for v in row_list):
+
+def _build_actions_detail(all_actions_raw: list, imports_grid_csv: str | None) -> list:
+    """The REST action list, with each import row's source/target columns taken
+    from the model-settings Imports grid (CSV text, first column = import name).
+    Without the grid this is exactly the REST fallback."""
+    table = _build_actions_detail_fallback(all_actions_raw)
+    if not imports_grid_csv:
+        return table
+
+    grid = list(csv.reader(io.StringIO(imports_grid_csv, newline="")))
+    header, by_name = grid[0], {}
+    for row in grid[1:]:
+        if row and row[0]:
+            by_name.setdefault(row[0], dict(zip(header, row)))
+
+    for out_row in table[1:]:
+        cells = by_name.get(out_row[0]) if out_row[1] == "imports" else None
+        if not cells:
             continue
-        row = dict(zip(headers, row_list))
-        table.append([
-            _find(row, "Name", "Action Name", "Naam", "Actienaam"),
-            _find(row, "Type", "Action Type", "Type actie"),
-            _find(row, "Source", "Bron", "Source Model", "Bronmodel"),
-            _find(row, "Source Object", "Bronobject", "Source View", "Bronweergave"),
-            _find(row, "Source Type", "Brontype", "Import Type", "Importtype"),
-            _find(row, "Target", "Target Object", "Doelobject", "Target Module"),
-            _find(row, "Target Type", "Doeltype"),
-            _find(row, "Production Data", "Productiedata", "Production"),
-        ])
+        for column, idx in _IMPORTS_GRID_COLUMNS.items():
+            if column in cells:
+                out_row[idx] = cells[column]
     return table
 
 
@@ -1518,22 +1465,13 @@ def scrape(browser: webdriver.Remote, config: dict, model_id: str, model_name: s
         modules_table.append([mdata["name"], mid, mdata["count"]])
     table_to_workbook(workbook, modules_table, "Modules Usage Count")
 
-    # ── Actions detail via Modeling UI Export ──────────────────────────────────
+    # ── Actions detail: REST action list + model-settings Imports grid ─────────
     print("  → Step 4/5: Downloading actions detail via Modeling UI...")
-    sheet_label     = _safe_sheet_title(f"Actions {model_name}", fallback="Actions")
-    act_detail_table = None
-
-    for section in ("imports", "actions"):
-        headers, rows = _try_modeling_section_export(
-            browser, model_new_url, section, download_dir, extra_wait=4, download_timeout=20,
-        )
-        if headers and rows:
-            act_detail_table = _build_actions_detail_from_download(headers, rows)
-            break
-
-    if act_detail_table is None:
+    sheet_label  = _safe_sheet_title(f"Actions {model_name}", fallback="Actions")
+    imports_grid = _export_imports_grid(browser, model_new_url, model_id, ws_guid)
+    if imports_grid is None:
         logging.warning("UI export failed. Falling back to REST API data.")
-        act_detail_table = _build_actions_detail_fallback(all_actions_raw)
+    act_detail_table = _build_actions_detail(all_actions_raw, imports_grid)
 
     table_to_workbook(workbook, act_detail_table, sheet_label)
 

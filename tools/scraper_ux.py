@@ -63,9 +63,11 @@ for _stream in (sys.stdout, sys.stderr):
 #  STEP 1 — Configuration via interactive prompts
 # ══════════════════════════════════════════════════════════════════════════════
 
-# springboard-definition-service (pages/boards) is a single global service,
-# always hosted here regardless of which regional shard the model lives on.
-SDS_HOST = "https://us1a.app.anaplan.com"
+def _sds_base(main_url: str) -> str:
+    """springboard-definition-service (NUX pages/boards) on the customer's own
+    app shard. It used to be hardcoded to us1a as a "single global service", but
+    us1a answers an eu3 browser session with 401 (an eu3 tenant, 2026-10-15)."""
+    return f"{main_url.rstrip('/')}/a/springboard-definition-service"
 
 # ── User defaults, sourced from .env (see .env.example) ───────────────────────
 # All personal/environment values live in .env, not here. Any value left unset
@@ -347,6 +349,49 @@ def api_get(browser: webdriver.Remote, url: str) -> dict:
             "return document.body.innerText || document.body.textContent;"
         )
     return json.loads(raw)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Model metadata over the Integration API (token auth)
+# ══════════════════════════════════════════════════════════════════════════════
+# Views, modules, line items and actions are /2/0 endpoints. They used to be
+# fetched through the browser session on the app shard, but that transport died
+# around 2026-08-07 (401 on eu2a, 503 on eu3), so they go over the token-
+# authenticated Integration API on the customer's own API host instead. The
+# browser is still used for the SDS pages and the Modeling UI export.
+
+def _rest_hosts(customer_key: str, model_id: str) -> tuple[str, str]:
+    """(api_base, auth_url) for this model: the registry entry's own realm when
+    the model is configured, else its customer's (a model picked via "Browse all
+    models" has no registry entry but still lives in its customer's realm)."""
+    for entry in registry.MODELS.values():
+        if (entry["customer_key"] == customer_key
+                and str(entry.get("model_id", "")).upper() == model_id.upper()):
+            return registry.api_hosts_for_region(entry.get("api_region", ""))
+    customer = registry.CUSTOMERS.get(customer_key, {}) or {}
+    return registry.api_hosts_for_region(customer.get("api_region", ""))
+
+
+def _fetch_model_metadata(sess, api_base: str, model_id: str) -> dict:
+    """Pull the model metadata the report needs over the token session.
+
+    Returns {"views", "modules", "line_items": [...], "actions": {atype: [...]}}.
+    A failed call raises (scrape_model_data._get is loud by design).
+    """
+    import scrape_model_data  # lazy: scrape_model_data imports this module
+
+    base = f"{api_base.rstrip('/')}/2/0/models/{model_id}"
+
+    def get(path):
+        return scrape_model_data._get(sess, f"{base}/{path}")
+
+    return {
+        "views":      get("views")["views"],
+        "modules":    get("modules")["modules"],
+        "line_items": get("lineItems").get("items", []),
+        "actions":    {atype: get(atype).get(atype, [])
+                       for atype in ("processes", "imports", "exports", "actions")},
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -832,22 +877,60 @@ def _iter_filter_leaves(filter_obj):
             stack.append(child)
 
 
-def _grid_widgets_of_page(page_content: dict) -> list:
-    """Flatten a board/grid-page's widgets into a single list.
+def _page_widget_defs(page_content: dict) -> list:
+    """Flatten a board/grid-page's widgets into a list of widget DEFINITIONS.
 
-    BOARD pages nest widgets under rows->columns->widgets; GRID-PAGE pages carry
-    a flat "widgets" list. Returns widget dicts (each with a widgetDefinition).
+    Three payload shapes are handled:
+      * current BOARD (seen live 2026-10-15): `rows` is empty and `widgets` is a
+        dict keyed by widget guid whose values ARE the definitions;
+      * legacy BOARD: rows->columns->widgets[], each {"widgetDefinition": {...}};
+      * GRID-PAGE: a flat `widgets` list.
+    A wrapped widget is unwrapped, so callers always get the definition itself.
     """
     if not isinstance(page_content, dict):
         return []
-    widgets = list(page_content.get("widgets", []) or [])
+    widgets = page_content.get("widgets") or []
+    raw = list(widgets.values()) if isinstance(widgets, dict) else list(widgets)
     for row in page_content.get("rows", []) or []:
         if not isinstance(row, dict):
             continue
         for col in row.get("columns", []) or []:
             if isinstance(col, dict):
-                widgets += col.get("widgets", []) or []
-    return widgets
+                raw += col.get("widgets", []) or []
+    defs = []
+    for w in raw:
+        if not isinstance(w, dict):
+            continue
+        wdef = w.get("widgetDefinition", w)
+        if isinstance(wdef, dict):
+            defs.append(wdef)
+    return defs
+
+
+def _page_action_ids(page_content: dict, page_type: str) -> set:
+    """Action ids a page exposes: widget actions, ACTION widgets' `actions`
+    (a JSON string, or already a list), and GRID-PAGE page-level actions."""
+    ids: set = set()
+    if page_type == "GRID-PAGE":
+        for action in (page_content or {}).get("actions", []) or []:
+            if isinstance(action, dict) and action.get("actionId"):
+                ids.add(action["actionId"])
+    for wdef in _page_widget_defs(page_content):
+        for a in wdef.get("widgetActions", []) or []:
+            if isinstance(a, dict) and a.get("actionId"):
+                ids.add(a["actionId"])
+        if wdef.get("type") == "ACTION":
+            actions = wdef.get("actions") or "[]"
+            if isinstance(actions, str):
+                try:
+                    actions = json.loads(actions)
+                except json.JSONDecodeError as e:
+                    logging.warning("Could not parse action widget JSON: %s", e)
+                    actions = []
+            for a in actions if isinstance(actions, list) else []:
+                if isinstance(a, dict) and a.get("id"):
+                    ids.add(a["id"])
+    return ids
 
 
 # Anaplan reserves this fixed entity id for the "Line Items" dimension. When
@@ -1054,6 +1137,50 @@ def _widget_module_line_items(wdef: dict, mod_ids: dict, mod_id2name: dict):
                 yield module_id, [nm]
 
 
+def _page_module_ids(page_content: dict, mod_ids: dict, mod_id2name: dict) -> list:
+    """Modules a page's widgets display (grid/chart regions, field `fields[]`,
+    KPI data source), in first-seen order. Shares `_widget_module_line_items`
+    with the line-items sheet so both agree on what a widget shows."""
+    out: list = []
+    for wdef in _page_widget_defs(page_content):
+        if _widget_ux_type(wdef) is None:
+            continue
+        for module_id, _names in _widget_module_line_items(wdef, mod_ids, mod_id2name):
+            module_id = str(module_id)
+            if module_id and module_id not in out:
+                out.append(module_id)
+    return out
+
+
+def _page_view_ids(page_data: dict, page_content: dict, views: dict,
+                   mod_ids: dict, mod_id2name: dict) -> list:
+    """View ids a page uses: its `pageDataSources` (when Anaplan fills them),
+    plus every module its widgets display that no listed view already covers.
+
+    `pageDataSources` came back empty on every page of an eu3 model (2026-10-15)
+    although the boards clearly show modules, so the widgets are the reliable
+    source. A widget module maps to the module's default view, whose id equals
+    the module id; failing that, to any view on that module.
+    """
+    out: list = []
+    for card in (page_data or {}).get("pageDataSources", []) or []:
+        if isinstance(card, dict):
+            ds = card.get("dataSourceId")
+            if ds in views and ds not in out:
+                out.append(ds)
+    covered = {str(views[v].get("module", "")) for v in out}
+    for module_id in _page_module_ids(page_content, mod_ids, mod_id2name):
+        if module_id in covered:
+            continue
+        view_id = module_id if module_id in views else next(
+            (vid for vid, v in views.items() if str(v.get("module", "")) == module_id),
+            None)
+        if view_id is not None and view_id not in out:
+            out.append(view_id)
+            covered.add(module_id)
+    return out
+
+
 def _build_views_line_items_table(collected_pages: list, views: dict,
                                   modules: dict, line_items_by_module: dict,
                                   model_new_url: str, views_table: list) -> list:
@@ -1087,10 +1214,7 @@ def _build_views_line_items_table(collected_pages: list, views: dict,
     covered: set = set()  # (page_guid, module_id) emitted from a real widget
 
     for page in collected_pages:
-        for widget in _grid_widgets_of_page(page.get("content", {})):
-            if not isinstance(widget, dict):
-                continue
-            wdef = widget.get("widgetDefinition", {}) or {}
+        for wdef in _page_widget_defs(page.get("content", {})):
             ux_type = _widget_ux_type(wdef)
             if ux_type is None:
                 continue
@@ -1154,10 +1278,7 @@ def _build_ui_filters_table(collected_pages: list, modules: dict,
     for page in collected_pages:
         page_name = page["name"]
         page_content = page["content"]
-        for widget in _grid_widgets_of_page(page_content):
-            if not isinstance(widget, dict):
-                continue
-            wdef = widget.get("widgetDefinition", {}) or {}
+        for wdef in _page_widget_defs(page_content):
             if wdef.get("type") != "TABLE":
                 continue
             for wds in wdef.get("widgetDataSources", []) or []:
@@ -1218,14 +1339,13 @@ def scrape(browser: webdriver.Remote, config: dict, model_id: str, model_name: s
 
     main_url  = config["main_url"].rstrip("/")
     out_dir   = config["output_folder"]
-    sds_url   = f"{SDS_HOST}/a/springboard-definition-service"
+    sds_url   = _sds_base(main_url)
 
     if not customer:
         raise RuntimeError("Missing customer ID for selected model; cannot fetch NUX pages.")
     if not ws_guid:
         raise RuntimeError("Missing workspace ID for selected model; cannot open Modeling UI exports.")
 
-    model_api_url   = f"{main_url}/2/0/models/{model_id}"
     model_pages_url = f"{sds_url}/customer/{customer}/model/{model_id}/pages"
     model_new_url   = (
         f"{main_url}/a/modeling/customers/{customer}"
@@ -1237,12 +1357,20 @@ def scrape(browser: webdriver.Remote, config: dict, model_id: str, model_name: s
     setup_logging(out_dir, model_name, timestamp)
     logging.info(f"Model: {model_name}  |  ID: {model_id}")
 
+    # /2/0 metadata over the token-authenticated Integration API (see
+    # _fetch_model_metadata); the browser session no longer serves /2/0.
+    import scrape_model_data  # lazy: scrape_model_data imports this module
+    api_base, auth_url = _rest_hosts(config["customer_key"], model_id)
+    print(f"\n  → Fetching model metadata from {api_base} (token auth)...")
+    meta = _fetch_model_metadata(
+        scrape_model_data._api_session(auth_url), api_base, model_id)
+
     workbook    = Workbook()
     blank_sheet = workbook.active
 
     # ── All Views ──────────────────────────────────────────────────────────────
     print("\n  → Step 1/5: Fetching views...")
-    raw_views = api_get(browser, f"{model_api_url}/views")["views"]
+    raw_views = meta["views"]
     table = [["Name", "ID", "Module ID"]]
     for v in raw_views:
         table.append([v["name"], v["id"], v["moduleId"]])
@@ -1253,22 +1381,19 @@ def scrape(browser: webdriver.Remote, config: dict, model_id: str, model_name: s
 
     # ── Modules ────────────────────────────────────────────────────────────────
     print("  → Step 2/5: Fetching modules...")
-    raw_modules = api_get(browser, f"{model_api_url}/modules")["modules"]
+    raw_modules = meta["modules"]
     modules = {m["id"]: {"name": m["name"], "count": 0} for m in raw_modules}
     print(f"  ✓ {len(raw_modules)} modules found.")
 
     # ── Line items (for the two extra sheets) ───────────────────────────────────
     # Official Anaplan API: one record per line item, tagged with its module.
-    try:
-        raw_line_items = api_get(browser, f"{model_api_url}/lineItems").get("items", [])
-    except Exception as e:
-        logging.warning("Could not fetch line items: %s", e)
-        raw_line_items = []
+    raw_line_items = meta["line_items"]
     line_items_by_module: dict = {}
     line_item_name_by_id: dict = {}
     for li in raw_line_items:
         line_items_by_module.setdefault(str(li.get("moduleId", "")), []).append(li)
         line_item_name_by_id[str(li.get("id", ""))] = li.get("name", "")
+    mod_ids, mod_id2name = _module_line_item_index(line_items_by_module)
     print(f"  ✓ {len(raw_line_items)} line items found.")
 
     # Board contents stashed here (additive) so the two extra sheets can be built
@@ -1283,8 +1408,7 @@ def scrape(browser: webdriver.Remote, config: dict, model_id: str, model_name: s
     actions_dict: dict = {}
     all_actions_raw: list = []
     for atype in ["processes", "imports", "exports", "actions"]:
-        resp = api_get(browser, f"{model_api_url}/{atype}")
-        for action in resp.get(atype, []):
+        for action in meta["actions"][atype]:
             actions_dict[action["id"]] = {"name": action["name"], "type": atype}
             all_actions_raw.append({"__atype": atype, **action})
 
@@ -1309,6 +1433,7 @@ def scrape(browser: webdriver.Remote, config: dict, model_id: str, model_name: s
         _progress(i + 1, len(pages), page_name[:40])
 
         # Actions per pagina
+        page_content: dict = {}
         if page_type in ("BOARD", "GRID-PAGE"):
             try:
                 page_content = api_get(
@@ -1334,48 +1459,7 @@ def scrape(browser: webdriver.Remote, config: dict, model_id: str, model_name: s
                 "content":  page_content,
             })
 
-            page_actions: set = set()
-            if page_type == "BOARD":
-                widgets = []
-                for row in page_content.get("rows", []):
-                    for col in row.get("columns", []):
-                        widgets += col.get("widgets", [])
-            else:
-                widgets = page_content.get("widgets", [])
-                for action in page_content.get("actions", []):
-                    if not isinstance(action, dict):
-                        continue
-                    action_id = action.get("actionId")
-                    if action_id:
-                        page_actions.add(action_id)
-
-            for widget in widgets:
-                if not isinstance(widget, dict):
-                    continue
-                wdef = widget.get("widgetDefinition", {})
-                for a in wdef.get("widgetActions", []):
-                    if not isinstance(a, dict):
-                        continue
-                    action_id = a.get("actionId")
-                    if action_id:
-                        page_actions.add(action_id)
-                if wdef.get("type") == "ACTION":
-                    try:
-                        widget_actions = json.loads(wdef.get("actions") or "[]")
-                    except json.JSONDecodeError as e:
-                        logging.warning(
-                            "Could not parse action widget JSON on %s (%s): %s",
-                            page_name, page_guid, e,
-                        )
-                        widget_actions = []
-                    if not isinstance(widget_actions, list):
-                        widget_actions = []
-                    for a in widget_actions:
-                        if not isinstance(a, dict):
-                            continue
-                        action_id = a.get("id")
-                        if action_id:
-                            page_actions.add(action_id)
+            page_actions = _page_action_ids(page_content, page_type)
 
             for aid in page_actions:
                 if aid not in actions_dict:
@@ -1403,16 +1487,8 @@ def scrape(browser: webdriver.Remote, config: dict, model_id: str, model_name: s
             )
             page_data = {}
 
-        data_sources = set()
-        for card in page_data.get("pageDataSources", []):
-            if not isinstance(card, dict):
-                continue
-            data_source_id = card.get("dataSourceId")
-            if data_source_id:
-                data_sources.add(data_source_id)
-        for ds_id in data_sources:
-            if ds_id not in views:
-                continue
+        for ds_id in _page_view_ids(page_data, page_content, views,
+                                    mod_ids, mod_id2name):
             views_table.append([
                 views[ds_id]["name"],
                 app_name,

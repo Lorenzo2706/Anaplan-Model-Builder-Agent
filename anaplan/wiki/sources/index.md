@@ -3,12 +3,16 @@ title: Sources — Index
 type: index
 tags: [anaplan, index, sources]
 created: 2026-05-27
-updated: 2026-09-29
+updated: 2026-10-23
 ---
 
 # Sources — Index
 
 One page per ingested source, chronological (newest first). Each source page summarizes the raw document and points back at `raw/`.
+
+## 2026-10
+
+- [[wiki/sources/2026-10-23-anaplan-integration-api-bulk-actions|Anaplan Integration API V2 Guide (Apiary) + URL/IP Allowlist — Clipping Batch (2 files)]] — Bulk/action endpoints added as 5 new pages to `wiki/concepts/integration-api/` (11–15); allowlist folded into page 02
 
 ## 2026-09
 

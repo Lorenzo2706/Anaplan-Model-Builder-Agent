@@ -39,3 +39,25 @@ _Avoid_: credential set, tenant key
 **Visibility probe**:
 A read-only check of which workspaces and models an authenticated identity can see, run before any model endpoint is called. It separates "can't authenticate" from "authenticated but can't see the model".
 _Avoid_: smoke test, connectivity check
+
+### Agent tool server (Anaplan MCP)
+
+**Intent tool**:
+An MCP tool that takes model, module, view, list and item *names*, resolves them to IDs itself, and returns one answer, walking one path through the API dependency map. The agent never builds a URL or handles a raw ID.
+_Avoid_: endpoint wrapper, API tool
+
+**Verification read**:
+A read of live cell or list values whose only purpose is to check a hypothesis, such as a proposed formula. It returns a sample with full coordinates and is never stored: values live in the server's RAM for the session and nowhere else.
+_Avoid_: export, data pull, extract
+
+**Bulk fallback**:
+What a verification read switches to when the transactional read would exceed its cell cap: a large-volume read request whose pages are streamed, filtered as they arrive, stopped early once the sample is full, and always deleted afterwards. The agent doesn't choose it; the tool does.
+_Avoid_: bulk export, large export
+
+**Session cache**:
+The server's in-RAM copy of a view already read in full during this session, kept only while the view fits under a size ceiling and is younger than the freshness limit. It is never written to disk and disappears when the server stops.
+_Avoid_: data cache, local copy
+
+**Grid position**:
+A 1-based row or column number in a view's grid as Anaplan shows it, counted after page selection. A positional request always echoes each cell's coordinates so the caller can confirm the position meant what they thought.
+_Avoid_: row index, line number

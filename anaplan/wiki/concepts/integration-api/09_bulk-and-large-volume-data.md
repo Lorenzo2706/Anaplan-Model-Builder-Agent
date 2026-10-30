@@ -101,6 +101,8 @@ Recommended import chunk size: **1–50 MB**, default **10 MB** (final chunk may
 
 ## Related
 
+- [[11_file-upload-and-download]] · [[12_import-actions]] · [[13_export-actions]] — endpoint-level sequences for the file transfer and actions described here
+
 - [[01_overview|Integration API — Overview]] — chunking and paging in the wider system-behavior context
 - [[03_reliability-retries-rate-limits|Reliability, Retries & Rate Limits]] — retrying individual chunk uploads rather than the whole transfer
 - [[06_lists-and-dimension-items|Lists & Dimension Items]] — the 1,000,000-record cap this mechanism exists to bypass

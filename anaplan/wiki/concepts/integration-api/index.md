@@ -3,12 +3,12 @@ title: Integration API — Index
 type: index
 tags: [anaplan, index, integration-api]
 created: 2026-09-09
-updated: 2026-09-09
+updated: 2026-10-23
 ---
 
 # Integration API — Index
 
-10 pages covering the Anaplan Integration API v2.0 (REST), synthesized from a 70-file Anapedia clipping batch. Individual raw docs remain in `raw/docs/` for endpoint-level detail (exact curl examples, full JSON payloads); these pages group them by workflow so you don't need to open 70 files to answer "how do I move data via the API."
+15 pages covering the Anaplan Integration API v2.0 (REST), synthesized from a 70-file Anapedia clipping batch (pages 01–10) and the Apiary V2 Guide (pages 11–15, Bulk/action endpoints). Individual raw docs remain in `raw/docs/` for endpoint-level detail (exact curl examples, full JSON payloads); these pages group them by workflow so you don't need to open 70 files to answer "how do I move data via the API."
 
 ---
 
@@ -32,8 +32,19 @@ updated: 2026-09-09
 | [[09_bulk-and-large-volume-data]] | `09_bulk-and-large-volume-data.md` | Large-volume read requests (lists & views, beyond the 1M cap), chunked file transfer, private vs. default files |
 | [[10_users]] | `10_users.md` | Authenticated-user identity, user lookup, user list |
 
+## Bulk / action endpoints
+
+| Page | File | Covers |
+|---|---|---|
+| [[11_file-upload-and-download]] | `11_file-upload-and-download.md` | Upload (chunk count, single/multi-chunk, gzip, complete), download chunks, delete files |
+| [[12_import-actions]] | `12_import-actions.md` | Import tasks, `localeName`, mapping parameters, task states, dump files |
+| [[13_export-actions]] | `13_export-actions.md` | Export definitions/metadata, tasks, Excel limits |
+| [[14_model-actions-delete-and-process]] | `14_model-actions-delete-and-process.md` | Action list/metadata types, delete-by-selection, processes and nested results, Optimizer log |
+| [[15_task-codes-and-logs]] | `15_task-codes-and-logs.md` | Completion, failure and data error/warning codes by family |
+
 ## Related domains
 
 - [[../index|Concepts index]]
 - [[../../patterns/index|Patterns index]] — DISCO, data-loading best practices pair naturally with import/export workflows
 - [[../../sources/2026-09-09-anaplan-integration-api|Source: Anapedia Integration API clipping batch]]
+- [[../../sources/2026-10-23-anaplan-integration-api-bulk-actions|Source: Apiary V2 Guide + allowlist clippings]]

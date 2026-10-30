@@ -97,3 +97,8 @@ No issues flagged — wiki is consistent.
 Moved 22 files from `Clippings/` to `raw/docs/`. Created: wiki/sources/2026-09-29-anapedia-workflow.md; wiki/concepts/workflow/ (index + 01_overview, 02_task-types-and-templates, 03_workflow-advanced, 04_notifications-and-feedback, 05_schedules-and-monitoring).
 Updated: wiki/concepts/index.md (new sub-collection), wiki/sources/index.md (new 2026-09 entry).
 Gap: no "Create a group task" page in the batch.
+
+## [2026-10-23] ingest | Anaplan Integration API V2 Guide (Apiary) + URL/IP allowlist (2 clippings)
+Moved 2 files from `Clippings/` to `raw/docs/`. Created: wiki/sources/2026-10-23-anaplan-integration-api-bulk-actions.md; wiki/concepts/integration-api/ 11_file-upload-and-download, 12_import-actions, 13_export-actions, 14_model-actions-delete-and-process, 15_task-codes-and-logs.
+Updated: integration-api/02_authentication-and-permissions (network allowlisting section), integration-api/09_bulk-and-large-volume-data (cross-links), integration-api/index (5 rows), wiki/concepts/index.md and index.md (10 → 15 pages), wiki/sources/index.md (new 2026-10 section).
+Transactional half of the Apiary guide already covered by 2026-09-09 ingest — not re-ingested. Gap: allowlist clipping has region headings only (IP tables not captured).

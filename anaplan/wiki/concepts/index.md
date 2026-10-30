@@ -14,7 +14,7 @@ Top-level navigation for foundational Anaplan concepts. Four sub-collections plu
 
 - [[wiki/concepts/anaplan concepts/index|Anaplan core concepts]] — 22 pages: dimensions, lists, line items, hierarchies, time, versions, access/security, roles, picklists, modules, actions, etc.
 - [[wiki/concepts/anaplan-applications/demand-and-inventory/index|Demand & Inventory Reference App]] — 15-chapter walkthrough (Data Hub → Demand Analysis → Stat Forecasting → Demand Planning → Reporting → Inventory).
-- [[wiki/concepts/integration-api/index|Integration API]] — 10 pages covering the Anaplan Integration API v2.0 (REST): auth, retries/rate limits, workspaces/models, lists, modules/views/line items, cell data read/write, bulk & large-volume data, users.
+- [[wiki/concepts/integration-api/index|Integration API]] — 15 pages covering the Anaplan Integration API v2.0 (REST): auth, retries/rate limits, workspaces/models, lists, modules/views/line items, cell data read/write, bulk & large-volume data, users, file upload/download, import/export/process/delete actions, task result codes.
 - [[wiki/concepts/workflow/index|Workflow]] — 5 pages on UX Workflow & Workflow Advanced: task types, templates, parallel/branching/value-based/send-back, batch approvals, notifications, schedules, monitoring.
 
 ## Flat pages

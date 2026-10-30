@@ -73,6 +73,18 @@ If a workspace uses single sign-on but an integration authenticates with basic a
 
 All API traffic runs over HTTPS with 2048-bit certificates (TLS in transit). **TLS 1.3** is required for new integrations; **TLS 1.2** is still supported. **TLS 1.1 is not supported** — build integrations against TLS 1.3.
 
+## Network allowlisting
+
+If your company restricts traffic, allowlist Anaplan's published URLs, domains and IPs **per region** (Anaplan's "URL, IP, and allowlist requirements" page, source: [[raw/docs/URL, IP, and allowlist requirements|raw clipping]]):
+
+- **Outbound** (your network → Anaplan): restrict-by-web-filter setups must allowlist every entry in the region's *Outbound traffic domains and IPs* section, otherwise API calls and the UI fail.
+- **Inbound** (Anaplan → your network): firewall/ACL setups must allowlist the region's *Inbound traffic IPs*, otherwise server-initiated integrations such as **CloudWorks** and **Anaplan Data Orchestrator** fail.
+- **Cloudflare and CloudFront IPs can change without notice** — keep a process to refresh the list; Anaplan offers a community subscription for updates.
+- Regions listed: ae1, ap1, au1, ca1, eu1, eu2, eu3, eu4, eu5, gb1, in1, id1, me1, sg1, us1, us2, us5, us7, us9 (region code = the shard in the tenant's URL).
+
+> [!warning] Gap
+> The clipping captured only the region headings — the per-region IP/domain tables sit behind tabs and were **not** captured. Re-clip each needed region from the live page (or open it directly) before configuring a firewall; don't treat this wiki as the IP list.
+
 ## Permission-related error responses
 
 | Response | Usually means |

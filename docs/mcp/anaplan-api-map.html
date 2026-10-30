@@ -1,0 +1,431 @@
+<title>Anaplan API Dependency Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a wide, horizontally scrolling lane schematic (endpoints left→right in dependency order) with a sticky detail panel beside it; reference tables below. */
+:root {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --ink: #17202b;
+  --muted: #5b6676;
+  --rule: #d7dde5;
+  --accent: #1f5f8b;
+  --accent-soft: #e2edf5;
+  --r-read: #2f7d5b;
+  --r-rpost: #2f6aa8;
+  --r-state: #b7791f;
+  --r-write: #c4552d;
+  --r-destr: #b42339;
+  --edge: #9aa6b4;
+  --warn-bg: #fff4dc;
+  --warn-ink: #7a5208;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11161d; --surface: #19212b; --ink: #e5eaf0; --muted: #98a3b3; --rule: #2b3643;
+  --accent: #6fb0dd; --accent-soft: #1d3346;
+  --r-read: #5cc293; --r-rpost: #6aa4e0; --r-state: #e0a64a; --r-write: #ec7f57; --r-destr: #f0607a;
+  --edge: #4d5a6a; --warn-bg: #3a2f17; --warn-ink: #f2cf86; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #11161d; --surface: #19212b; --ink: #e5eaf0; --muted: #98a3b3; --rule: #2b3643;
+  --accent: #6fb0dd; --accent-soft: #1d3346;
+  --r-read: #5cc293; --r-rpost: #6aa4e0; --r-state: #e0a64a; --r-write: #ec7f57; --r-destr: #f0607a;
+  --edge: #4d5a6a; --warn-bg: #3a2f17; --warn-ink: #f2cf86; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.5; }
+.wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 56px; max-width: 1680px; margin: 0 auto; display: grid; gap: 28px; }
+h1, h2, h3 { font-family: var(--f-display); font-weight: 600; text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
+h1 { font-size: 2rem; line-height: 1.1; }
+h2 { font-size: 1.35rem; }
+h3 { font-size: 1.05rem; }
+p { margin: 0; }
+code, .mono { font-family: var(--f-mono); font-size: 0.86em; }
+.lede { color: var(--muted); max-width: 72ch; }
+.eyebrow { font-family: var(--f-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); }
+header.top { display: grid; gap: 10px; }
+.stats { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--muted); font-size: 0.86rem; }
+.stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* controls */
+.controls { display: grid; gap: 12px; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; }
+.crow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.clabel { font-family: var(--f-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); min-width: 86px; }
+.chip { font: inherit; font-size: 0.82rem; border: 1px solid var(--rule); background: var(--bg); color: var(--ink); border-radius: 999px; padding: 4px 11px; cursor: pointer; }
+.chip.tool { font-family: var(--f-mono); font-size: 0.78rem; }
+.chip:hover { border-color: var(--accent); }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.chip:focus-visible, .node:focus-visible, .toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 0.84rem; color: var(--muted); cursor: pointer; margin-right: 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.8rem; color: var(--muted); }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+/* map */
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start; }
+.canvas-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; min-width: 0; }
+.canvas { position: relative; }
+.canvas svg { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.lane-h { position: absolute; top: 14px; font-family: var(--f-display); font-weight: 600; font-size: 0.95rem; }
+.lane-h small { display: block; font-family: var(--f-mono); font-weight: 400; font-size: 0.68rem; color: var(--muted); letter-spacing: 0.04em; }
+.lane-bg { position: absolute; top: 0; bottom: 0; border-right: 1px dashed var(--rule); }
+.node { position: absolute; display: grid; grid-template-rows: auto auto; gap: 2px; text-align: left; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-left: 4px solid var(--rc); border-radius: 5px; padding: 6px 9px 6px 8px; cursor: pointer; transition: opacity .15s, box-shadow .15s; }
+.node .t1 { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.node .meth { font-family: var(--f-mono); font-size: 0.66rem; font-weight: 500; color: var(--rc); flex: none; }
+.node .ttl { font-size: 0.8rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.node .pth { font-family: var(--f-mono); font-size: 0.66rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.node .flag { position: absolute; top: -7px; right: -7px; width: 16px; height: 16px; border-radius: 50%; background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn-ink); font-size: 10px; line-height: 14px; text-align: center; font-weight: 600; }
+.node.out { border-style: dashed; border-left-style: solid; background: var(--bg); }
+.node.out .ttl, .node.out .pth { color: var(--muted); }
+.node.dim { opacity: 0.22; }
+.node.on { box-shadow: 0 0 0 2px var(--accent); }
+.node.sel { box-shadow: 0 0 0 3px var(--accent); }
+.r-read { --rc: var(--r-read); } .r-rpost { --rc: var(--r-rpost); } .r-state { --rc: var(--r-state); } .r-write { --rc: var(--r-write); } .r-destr { --rc: var(--r-destr); }
+path.e { fill: none; stroke: var(--edge); stroke-width: 1; opacity: 0.45; }
+path.e.ctx { stroke-dasharray: 2 3; opacity: 0.3; }
+path.e.hot { stroke: var(--accent); stroke-width: 1.8; opacity: 1; }
+path.e.cold { opacity: 0.07; }
+text.el { font-family: var(--f-mono); font-size: 10px; fill: var(--accent); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+
+/* detail */
+.detail { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px; display: grid; gap: 12px; min-width: 0; max-height: calc(100vh - 24px); overflow-y: auto; }
+.detail .full { font-family: var(--f-mono); font-size: 0.76rem; word-break: break-all; background: var(--bg); border-radius: 4px; padding: 6px 8px; }
+.pill { display: inline-block; font-size: 0.72rem; font-weight: 600; border-radius: 999px; padding: 2px 9px; color: var(--surface); background: var(--rc); }
+.pill.scope { background: var(--accent-soft); color: var(--accent); }
+.pill.noscope { background: var(--bg); color: var(--muted); border: 1px solid var(--rule); }
+.kv { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 6px 10px; font-size: 0.84rem; }
+.kv dt { font-family: var(--f-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding-top: 2px; }
+.kv dd { margin: 0; min-width: 0; }
+.idc { display: inline-block; font-family: var(--f-mono); font-size: 0.72rem; border: 1px solid var(--rule); border-radius: 3px; padding: 0 5px; margin: 0 4px 3px 0; }
+.idc.ctx { color: var(--muted); border-style: dashed; }
+.warn { background: var(--warn-bg); color: var(--warn-ink); border-radius: 5px; padding: 8px 10px; font-size: 0.82rem; }
+.hint { color: var(--muted); font-size: 0.8rem; }
+
+/* tables */
+.ref { display: grid; gap: 14px; }
+.tscroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.84rem; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--rule); }
+th { font-family: var(--f-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 500; }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+.cols2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 20px; }
+.box { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; display: grid; gap: 10px; min-width: 0; }
+.box ol, .box ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 0.86rem; }
+.box li { max-width: 80ch; }
+
+@media (max-width: 1080px) {
+  .stage { grid-template-columns: minmax(0, 1fr); }
+  .detail { position: static; max-height: none; }
+}
+@media (prefers-reduced-motion: reduce) { .node { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <span class="eyebrow">Custom Anaplan MCP · design input · read-only v1</span>
+    <h1>Anaplan API Dependency Map</h1>
+    <p class="lede">Every transactional Integration API endpoint from the wiki (pages 04–10), plus the read-only action metadata from the Browse collection. Lines show which call hands an ID to which other call. Pick a workflow or a proposed tool to see the path it walks; click any endpoint for its inputs, outputs and caps.</p>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <section class="controls" aria-label="Map controls">
+    <div class="crow"><span class="clabel">Workflow</span><div class="crow" id="wfChips"></div></div>
+    <div class="crow"><span class="clabel">Tool</span><div class="crow" id="toolChips"></div></div>
+    <div class="crow">
+      <span class="clabel">Show</span>
+      <label class="toggle"><input type="checkbox" id="tOut" checked> Out-of-scope endpoints (writes, state changes)</label>
+      <label class="toggle"><input type="checkbox" id="tCtx"> workspaceId / modelId lines</label>
+    </div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section class="stage">
+    <div class="canvas-scroll"><div class="canvas" id="canvas"><svg id="edges"></svg></div></div>
+    <aside class="detail" id="detail" aria-live="polite"></aside>
+  </section>
+
+  <section class="ref">
+    <h2>Proposed tools</h2>
+    <p class="lede">Intent-level tools that take names, not IDs. Each one resolves the model through the registry, walks its path on the map, and stamps every answer with customer / model / engine.</p>
+    <div class="tscroll"><table id="toolTable"><thead><tr><th>Tool</th><th>What it answers</th><th>Endpoints it walks</th><th>Workflows</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="cols2">
+    <div class="box">
+      <h3>Decisions so far</h3>
+      <ol>
+        <li>Endpoint I/O comes from the wiki's transactional pages, not the reference site, whose response examples are mostly illustrative.</li>
+        <li>Financial Consolidation endpoints are out: a separate product with separate auth.</li>
+        <li>v1 is read-only against Anaplan. Writes and state changes stay on the map, dashed.</li>
+        <li>Intent-level tools that take names. No generic URL tool; no hand-built URLs.</li>
+        <li>All seven workflows are in v1, bulk extract included.</li>
+        <li>One server for all customers. Each call resolves the model through the registry; unregistered models are refused. Tokens live in memory per auth profile.</li>
+        <li><code>list_models</code> shows unregistered models too. <code>register_model</code> writes <code>models.py</code> and <code>registry.md</code> together; engine is supplied, never guessed. New customers stay with project-setup.</li>
+        <li>Fetched data is never stored. Values live in server RAM for the session and reach the agent only as a filtered sample with coordinates.</li>
+        <li><code>read_cells</code> tries the transactional read first, then falls back to a streamed bulk read: filter while streaming, stop early, cache in RAM only when the view is small enough, always delete the read request.</li>
+        <li>Row and column positions mean the view's grid as Anaplan shows it, 1-based, after page selection. Every returned cell echoes its coordinates.</li>
+      </ol>
+    </div>
+    <div class="box">
+      <h3>To verify against a live model</h3>
+      <ul id="verifyList"></ul>
+    </div>
+  </section>
+</div>
+
+<script>
+const LANES = [
+  { k: "disc", t: "Discovery & lifecycle", s: "wiki 04" },
+  { k: "set",  t: "Model settings",        s: "wiki 05" },
+  { k: "list", t: "Lists & dimension items", s: "wiki 06" },
+  { k: "mod",  t: "Modules, views, line items", s: "wiki 07" },
+  { k: "cell", t: "Cell data",             s: "wiki 08" },
+  { k: "bulk", t: "Large-volume reads",    s: "wiki 09" },
+  { k: "act",  t: "Action metadata",       s: "wiki 12–14 · Browse" }
+];
+const RISK = {
+  read:  "Read",
+  rpost: "Read via POST/DELETE, no model change",
+  state: "Changes model state",
+  write: "Writes data",
+  destr: "Destructive"
+};
+const CTX = new Set(["workspaceId", "modelId"]);
+const WM = "/workspaces/{workspaceId}/models/{modelId}";
+const M = "/models/{modelId}";
+
+const N = [
+  // Discovery & lifecycle
+  { id:"d1", l:0, m:"GET", t:"List workspaces", p:"/workspaces?tenantDetails=true", r:"read", g:["workspaceId"], f:"workspaces[]: id, name, active, sizeAllowance, currentSize", w:"04" },
+  { id:"d2", l:0, m:"GET", t:"Get workspace", p:"/workspaces/{workspaceId}?tenantDetails=true", r:"read", n:["workspaceId"], f:"Same fields for one workspace", w:"04" },
+  { id:"d3", l:0, m:"GET", t:"List all models", p:"/models?offset=&limit=", r:"read", g:["modelId","workspaceId"], f:"id, name, activeState, currentWorkspaceId/Name, modelUrl, lastModified, categoryValues", c:"Capped at the first 5,000 models unless paged with offset/limit", w:"04" },
+  { id:"d4", l:0, m:"GET", t:"Get model (details)", p:M+"?modelDetails=true", r:"read", n:["modelId"], f:"Model fields + memoryUsage, lastSavedSerialNumber, isoCreationDate", w:"04", v:"No field is confirmed to say Classic vs Polaris, so register_model takes engine as input." },
+  { id:"d5", l:0, m:"GET", t:"Models in workspace", p:"/workspaces/{workspaceId}/models?modelDetails=true", r:"read", n:["workspaceId"], g:["modelId"], f:"Models in one workspace, with memory usage", w:"04" },
+  { id:"d6", l:0, m:"POST", t:"Check model status", p:WM+"/status", r:"rpost", n:["workspaceId","modelId"], f:"requestStatus.currentStep: Open · Processing · Updating · Closed; tooltip; progress 0–1", c:"Reads are blocked while an import, export or writeback holds the model", w:"04" },
+  { id:"d7", l:0, m:"POST", t:"Wake up model", p:WM+"/open", r:"state", n:["workspaceId","modelId"], f:"200 open · 202 opening · 404/422/424", c:"Workspace admin. Fair-use policy: no keep-alive opens", w:"04" },
+  { id:"d8", l:0, m:"POST", t:"Close model", p:WM+"/close", r:"state", n:["workspaceId","modelId"], f:"200/204 closed", c:"Workspace admin", w:"04" },
+  { id:"d9", l:0, m:"POST", t:"Bulk delete models", p:"/workspaces/{workspaceId}/bulkDeleteModels", r:"destr", n:["workspaceId","modelId"], f:"modelsDeleted, bulkDeleteModelsFailures[]", c:"Deletes whole models. Models must be closed first", w:"04" },
+  // Model settings
+  { id:"s1", l:1, m:"GET", t:"Model calendar", p:WM+"/modelCalendar", r:"read", n:["workspaceId","modelId"], f:"calendarType, fiscalYear{year,startDate,endDate}, pastYearsCount, futureYearsCount, currentPeriod, totalsSelection", c:"Empty object for calendars without a fiscal year (Weeks General). Legacy alias: /calendar", w:"05" },
+  { id:"s2", l:1, m:"PUT", t:"Update fiscal year", p:WM+"/modelCalendar/fiscalYear", r:"state", n:["workspaceId","modelId"], f:'Body {"year":"FY21"}', c:"400 when out of range", w:"05" },
+  { id:"s3", l:1, m:"GET", t:"Current period", p:WM+"/currentPeriod", r:"read", n:["workspaceId","modelId"], f:"periodText, lastDay (empty strings when unset)", w:"05" },
+  { id:"s4", l:1, m:"PUT", t:"Set current period", p:WM+"/currentPeriod", r:"destr", n:["workspaceId","modelId"], f:"Body: a date inside the target period", c:"Data in periods that fall out of range is deleted", w:"05" },
+  { id:"s5", l:1, m:"GET", t:"Version metadata", p:M+"/versions", r:"read", n:["modelId"], g:["versionId"], f:"id, name, isCurrent, isActual, switchover, formula, editFrom, editTo, notes", c:"Only versions the caller's role can read", w:"05" },
+  { id:"s6", l:1, m:"PUT", t:"Set switchover date", p:M+"/versions/{versionId}/switchover", r:"state", n:["modelId","versionId"], f:'Body {"date":"..."}', c:"Forecast/variance versions only; date must move forward", w:"05" },
+  { id:"s7", l:1, m:"GET", t:"Model dimensions", p:WM+"/dimensions", r:"read", n:["workspaceId","modelId"], g:["dimensionId"], f:"Dimensions of the model (shape not documented in the wiki)", src:"Browse collection only", w:"–", v:"Only in the Browse collection, marked 'where supported'. Response shape unknown." },
+  // Lists & dimension items
+  { id:"l1", l:2, m:"GET", t:"List lists", p:WM+"/lists", r:"read", n:["workspaceId","modelId"], g:["listId","dimensionId"], f:"id, name per list. A listId is also a dimensionId", w:"06" },
+  { id:"l2", l:2, m:"GET", t:"List metadata", p:WM+"/lists/{listId}", r:"read", n:["workspaceId","modelId","listId"], f:"itemCount, permittedItems, numberedList, parent, subsets[], topLevelItem, productionData, properties (format, formula, referencedBy)", w:"06" },
+  { id:"l3", l:2, m:"GET", t:"List items", p:WM+"/lists/{listId}/items?includeAll=true", r:"read", n:["workspaceId","modelId","listId"], g:["itemId"], f:"id, name, code, parent, parentId; includeAll adds read/write, subsets, properties", c:"Over 1,000,000 records returns 400, not a truncated list", w:"06" },
+  { id:"l4", l:2, m:"GET", t:"Preview large list", p:WM+"/lists/{listId}/preview", r:"read", n:["workspaceId","modelId","listId"], f:"CSV, limited subset of records", w:"06" },
+  { id:"l5", l:2, m:"POST", t:"Add list items", p:WM+"/lists/{listId}/items?action=add", r:"write", n:["workspaceId","modelId","listId"], f:"total, added, ignored, failures[]", c:"100,000 items per call", w:"06" },
+  { id:"l6", l:2, m:"PUT", t:"Update list items", p:WM+"/lists/{listId}/items", r:"write", n:["workspaceId","modelId","listId"], f:"Partial update by id, code or name", c:"100,000 items per call", w:"06" },
+  { id:"l7", l:2, m:"POST", t:"Delete list items", p:WM+"/lists/{listId}/items?action=delete", r:"destr", n:["workspaceId","modelId","listId"], f:"deleted, failures[]", c:"100,000 items per call", w:"06" },
+  { id:"l8", l:2, m:"POST", t:"Reset list index", p:M+"/lists/{listId}/resetIndex", r:"write", n:["modelId","listId"], f:"No body on success", c:"List must be empty", w:"06" },
+  { id:"l9", l:2, m:"GET", t:"All items in dimension", p:M+"/dimensions/{dimensionId}/items", r:"read", n:["modelId","dimensionId"], g:["itemId"], f:"items[]: id, name, code (omitted when unset)", c:"No Time dimension (400). Ignores view filters and selective access. Cap 1,000,000", w:"06" },
+  { id:"l10", l:2, m:"POST", t:"Look up items by name/code", p:M+"/dimensions/{dimensionId}/items", r:"rpost", n:["modelId","dimensionId"], g:["itemId"], f:"Matching items only; non-matches are dropped silently", c:"Works for lists, Time, Users, Versions", w:"06" },
+  { id:"l11", l:2, m:"GET", t:"Items in dimension for view", p:M+"/views/{viewId}/dimensions/{dimensionId}/items", r:"read", n:["modelId","viewId","dimensionId"], g:["itemId"], f:"items[] as the view shows them", c:"Respects hidden/filtered items and selective access. Use this for Time", w:"06" },
+  // Modules, views, line items
+  { id:"m1", l:3, m:"GET", t:"List modules", p:M+"/modules", r:"read", n:["modelId"], g:["moduleId"], f:"id, name per module", w:"07" },
+  { id:"m2", l:3, m:"GET", t:"Get module", p:M+"/modules/{moduleId}", r:"read", n:["modelId","moduleId"], f:"Not documented in the wiki", src:"Browse collection only", w:"–", v:"Only in the Browse collection; the reference site's example is a placeholder." },
+  { id:"m3", l:3, m:"GET", t:"Views in module", p:M+"/modules/{moduleId}/views?includesubsidiaryviews=true", r:"read", n:["modelId","moduleId"], g:["viewId"], f:"Default view (viewId = moduleId) + saved views named Module.View", w:"07" },
+  { id:"m4", l:3, m:"GET", t:"Views in model", p:M+"/views?includesubsidiaryviews=true", r:"read", n:["modelId"], g:["viewId","moduleId"], f:"code, id, name, moduleId. Subsidiary views use viewId = lineItemId", c:"Live count can exceed the offline Views.csv", w:"07" },
+  { id:"m5", l:3, m:"GET", t:"View dimensions", p:M+"/views/{viewId}", r:"read", n:["modelId","viewId"], g:["dimensionId"], f:"viewName, viewId, rows[], columns[], pages[] each {id, name}; empty axes are omitted", c:"viewId can be a lineItemId", w:"07" },
+  { id:"m6", l:3, m:"GET", t:"Line items in model", p:M+"/lineItems?includeAll=true", r:"read", n:["modelId"], g:["lineItemId","moduleId"], f:"moduleId/Name, id, name, formula, format, summary, appliesTo, timeScale, timeRange, referencedBy, isSummary, breakback, cellCount, readAccessDriver, writeAccessDriver, notes", c:"UI order; only modules the role can read", w:"07" },
+  { id:"m7", l:3, m:"GET", t:"Line items in module", p:M+"/modules/{moduleId}/lineItems?includeAll=true", r:"read", n:["modelId","moduleId"], g:["lineItemId"], f:"Same full metadata for one module", c:"404 when the role cannot read the module", w:"07" },
+  { id:"m8", l:3, m:"GET", t:"Get line item", p:M+"/lineItems/{lineItemId}", r:"read", n:["modelId","lineItemId"], f:"Not documented in the wiki", src:"Browse collection only", w:"–", v:"Only in the Browse collection; response shape unknown." },
+  { id:"m9", l:3, m:"GET", t:"Line item dimensions", p:M+"/lineItems/{lineItemId}/dimensions", r:"read", n:["modelId","lineItemId"], g:["dimensionId"], f:"Dimension ids that apply to the line item", w:"07" },
+  { id:"m10", l:3, m:"GET", t:"Items for line item dimension", p:M+"/lineItems/{lineItemId}/dimensions/{dimensionId}/items", r:"read", n:["modelId","lineItemId","dimensionId"], g:["itemId"], f:"Flat list in model order", c:"Cap 1,000,000", w:"07" },
+  // Cell data
+  { id:"c1", l:4, m:"GET", t:"Read view cells", p:M+"/views/{viewId}/data?format=v1&pages=dim:item", r:"read", n:["modelId","viewId","dimensionId","itemId"], f:"JSON v1: pages[], columnCoordinates[][], rows[]{rowCoordinates[], cells[]}. CSV by default", c:"Over 1,000,000 cells returns 400. viewId can be a lineItemId. 429 on rapid repeats", w:"08" },
+  { id:"c2", l:4, m:"POST", t:"Write module cells", p:M+"/modules/{moduleId}/data", r:"write", n:["modelId","moduleId","lineItemId","dimensionId","itemId"], f:"numberOfCellsChanged, failures[]", c:"100,000 cells or 15 MB. Never aggregate cells", w:"08" },
+  // Bulk
+  { id:"b1", l:5, m:"POST", t:"Start view read request", p:WM+"/views/{viewId}/readRequests", r:"rpost", n:["workspaceId","modelId","viewId"], g:["viewRequestId"], f:'Body {"exportType": GRID_ALL_PAGES | TABULAR_MULTI_COLUMN | …}', c:"No cell cap. Creates a server-side export, not a model change", w:"09", v:"Two things to test: whether viewId can be a lineItemId here, and whether GRID_ALL_PAGES rows line up with the transactional grid." },
+  { id:"b2", l:5, m:"GET", t:"View read status", p:WM+"/views/{viewId}/readRequests/{requestId}", r:"read", n:["workspaceId","modelId","viewId","viewRequestId"], f:"requestState: NOT_STARTED · IN_PROGRESS · COMPLETE(successful) · CANCELLED; availablePages", w:"09" },
+  { id:"b3", l:5, m:"GET", t:"Download view page", p:WM+"/views/{viewId}/readRequests/{requestId}/pages/{pageNo}", r:"read", n:["workspaceId","modelId","viewId","viewRequestId"], f:"text/csv chunk; pages are zero-based", c:"Pages can be pulled while the export is still running", w:"09" },
+  { id:"b4", l:5, m:"DELETE", t:"Delete view read request", p:WM+"/views/{viewId}/readRequests/{requestId}", r:"rpost", n:["workspaceId","modelId","viewId","viewRequestId"], f:"Cancels or removes the export pages", c:"Removes the export only. Auto-expires after 30 min idle", w:"09" },
+  { id:"b5", l:5, m:"POST", t:"Start list read request", p:WM+"/lists/{listId}/readRequests", r:"rpost", n:["workspaceId","modelId","listId"], g:["listRequestId"], f:"Starts an export of the whole list", w:"09" },
+  { id:"b6", l:5, m:"GET", t:"List read status", p:WM+"/lists/{listId}/readRequests/{requestId}", r:"read", n:["workspaceId","modelId","listId","listRequestId"], f:"requestState, availablePages", w:"09" },
+  { id:"b7", l:5, m:"GET", t:"Download list page", p:WM+"/lists/{listId}/readRequests/{requestId}/pages/{pageNo}", r:"read", n:["workspaceId","modelId","listId","listRequestId"], f:"text/csv chunk", w:"09" },
+  { id:"b8", l:5, m:"DELETE", t:"Delete list read request", p:WM+"/lists/{listId}/readRequests/{requestId}", r:"rpost", n:["workspaceId","modelId","listId","listRequestId"], f:"Cancels or removes the export pages", w:"09" },
+  // Action metadata
+  { id:"a1", l:6, m:"GET", t:"List imports", p:WM+"/imports", r:"read", n:["workspaceId","modelId"], g:["importId"], f:"id, name, importDataSourceId, importType", w:"12" },
+  { id:"a2", l:6, m:"GET", t:"Import definition", p:WM+"/imports/{importId}", r:"read", n:["workspaceId","modelId","importId"], f:"type FILE|MODEL; file sources add separators, headerRow, firstDataRow, headerNames[], columnCount", w:"12" },
+  { id:"a3", l:6, m:"GET", t:"List exports", p:WM+"/exports", r:"read", n:["workspaceId","modelId"], g:["exportId"], f:"id, name, exportType", w:"13" },
+  { id:"a4", l:6, m:"GET", t:"Export definition", p:WM+"/exports/{exportId}", r:"read", n:["workspaceId","modelId","exportId"], f:"columnCount, dataTypes[], headerNames[], listNames[], rowCount, exportFormat", w:"13" },
+  { id:"a5", l:6, m:"GET", t:"List processes", p:WM+"/processes", r:"read", n:["workspaceId","modelId"], g:["processId"], f:"id, name", w:"14" },
+  { id:"a6", l:6, m:"GET", t:"Process definition", p:M+"/processes/{processId}", r:"read", n:["modelId","processId"], f:"Ordered actions[]: id, name, actionType (+ import source, export layout)", w:"14" },
+  { id:"a7", l:6, m:"GET", t:"List other actions", p:WM+"/actions", r:"read", n:["workspaceId","modelId"], g:["actionId"], f:"id, actionType, name", w:"14" },
+  { id:"a8", l:6, m:"GET", t:"Action definition", p:WM+"/actions/{actionId}", r:"read", n:["workspaceId","modelId","actionId"], f:"Type-specific: listId, filterLineItemId, lineItemId, sortOrder, source/target member", w:"14" }
+];
+
+const WF = [
+  { k:"orient",  t:"Orient", nodes:["d1","d5","d4","d6","s1","s3","s5","m1","l1"] },
+  { k:"struct",  t:"Inspect structure", nodes:["m1","m4","m3","m7","m5"] },
+  { k:"trace",   t:"Trace dependencies", nodes:["m6","m7","l2"] },
+  { k:"values",  t:"Read values", nodes:["m4","m5","l11","l10","d6","c1"] },
+  { k:"lists",   t:"Explore lists", nodes:["l1","l2","l3","l4","l9","l10"] },
+  { k:"actions", t:"Inventory integrations", nodes:["a1","a2","a3","a4","a5","a6","a7","a8"] },
+  { k:"bulk",    t:"Bulk extract", nodes:["m4","m5","b1","b2","b3","b4","l1","b5","b6","b7","b8"] }
+];
+
+const TOOLS = [
+  { k:"list_models", sig:"list_models(customer?)", does:"Which models can this customer's identity see? Each one tagged registered or not, with workspace, state and memory use.", nodes:["d1","d5","d3"], wf:["orient"] },
+  { k:"register_model", sig:"register_model(customer, workspace_id, model_id, engine, workspace_label, model_key, raw_dir)", does:"Adds a visible model to models.py and registry.md in one step. Local vault write; engine is required.", nodes:["d4"], wf:["orient"] },
+  { k:"model_overview", sig:"model_overview(model)", does:"Status, calendar, current period, versions, and module and list counts.", nodes:["d4","d6","s1","s3","s5","m1","l1"], wf:["orient"] },
+  { k:"describe_module", sig:"describe_module(model, module)", does:"Line items with formula, format, applies-to and summary; the module's views and their rows, columns and pages.", nodes:["m1","m7","m3","m5"], wf:["struct"] },
+  { k:"trace_references", sig:"trace_references(model, line_item | list)", does:"What this line item reads (formula) and what reads it (referencedBy), including list properties.", nodes:["m6","m7","l2"], wf:["trace"] },
+  { k:"read_cells", sig:"read_cells(model, view | module | line_item, filter | rows/cols, sample=20, refresh=false)", does:"A sample of cells with full coordinates. Transactional read first, streamed bulk read past the cap; nothing written to disk.", nodes:["m4","m3","m5","l11","l10","d6","c1","b1","b2","b3","b4"], wf:["values","bulk"] },
+  { k:"explore_list", sig:"explore_list(model, list, filter?, sample=20)", does:"List metadata, hierarchy, codes, properties and subsets, with a sample of items. Streams a bulk read for lists over 1M.", nodes:["l1","l2","l3","l4","b5","b6","b7","b8"], wf:["lists","bulk"] },
+  { k:"lookup_items", sig:"lookup_items(model, dimension, names | codes)", does:"Turns names or codes into item IDs for any dimension, Time and Versions included.", nodes:["l9","l10","l11","m9","m10"], wf:["lists","values"] },
+  { k:"list_actions", sig:"list_actions(model, kind?)", does:"Imports, exports, processes and other actions in the model.", nodes:["a1","a3","a5","a7"], wf:["actions"] },
+  { k:"describe_action", sig:"describe_action(model, action)", does:"The definition of one action: sources, columns, layout, or a process's ordered steps.", nodes:["a2","a4","a6","a8"], wf:["actions"] }
+];
+
+const byId = Object.fromEntries(N.map(n => [n.id, n]));
+N.forEach(n => { n.n = n.n || []; n.g = n.g || []; n.out = !(n.r === "read" || n.r === "rpost"); n.tools = TOOLS.filter(t => t.nodes.includes(n.id)).map(t => t.k); });
+
+// Edges: every producer of an ID to every consumer of it.
+const E = [];
+N.forEach(b => b.n.forEach(id => N.forEach(a => {
+  if (a !== b && a.g.includes(id)) E.push({ a: a.id, b: b.id, id, ctx: CTX.has(id) });
+})));
+
+const W = 228, H = 50, LG = 60, VG = 14, TOP = 62, PADX = 20;
+const laneCount = {};
+N.forEach(n => { n.idx = laneCount[n.l] = (laneCount[n.l] ?? -1) + 1; n.x = PADX + n.l * (W + LG); n.y = TOP + n.idx * (H + VG); });
+const CW = PADX * 2 + LANES.length * W + (LANES.length - 1) * LG + 30;
+const CH = TOP + Math.max(...Object.values(laneCount)) * (H + VG) + H + 30;
+
+const state = { sel: "c1", overlay: null, showOut: true, showCtx: false };
+const canvas = document.getElementById("canvas");
+const svg = document.getElementById("edges");
+canvas.style.width = CW + "px"; canvas.style.height = CH + "px";
+svg.setAttribute("width", CW); svg.setAttribute("height", CH);
+
+LANES.forEach((ln, i) => {
+  const x = PADX + i * (W + LG);
+  const h = document.createElement("div"); h.className = "lane-h"; h.style.left = x + "px"; h.style.width = W + "px";
+  h.innerHTML = `${ln.t}<small>${ln.s}</small>`; canvas.appendChild(h);
+  if (i < LANES.length - 1) { const bg = document.createElement("div"); bg.className = "lane-bg"; bg.style.left = (x + W + LG / 2) + "px"; canvas.appendChild(bg); }
+});
+
+const shortPath = p => p.replace(WM, "…").replace(M, "…");
+const els = {};
+N.forEach(n => {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = `node r-${n.r}` + (n.out ? " out" : "");
+  b.style.left = n.x + "px"; b.style.top = n.y + "px"; b.style.width = W + "px"; b.style.height = H + "px";
+  b.innerHTML = `<span class="t1"><span class="meth">${n.m}</span><span class="ttl">${n.t}</span></span><span class="pth">${shortPath(n.p)}</span>` + (n.v ? `<span class="flag" title="Needs live verification">!</span>` : "");
+  b.setAttribute("aria-label", `${n.m} ${n.t}`);
+  b.addEventListener("click", () => { state.sel = n.id; render(); });
+  canvas.appendChild(b); els[n.id] = b;
+});
+
+function edgePath(a, b) {
+  const ay = a.y + H / 2, by = b.y + H / 2;
+  if (a.l < b.l) { const x1 = a.x + W, x2 = b.x, dx = Math.max(30, (x2 - x1) / 2); return `M${x1},${ay} C${x1 + dx},${ay} ${x2 - dx},${by} ${x2},${by}`; }
+  if (a.l > b.l) { const x1 = a.x, x2 = b.x + W, dx = Math.max(30, (x1 - x2) / 2); return `M${x1},${ay} C${x1 - dx},${ay} ${x2 + dx},${by} ${x2},${by}`; }
+  const x = a.x + W, bulge = 26 + Math.min(18, Math.abs(by - ay) / 12); return `M${x},${ay} C${x + bulge},${ay} ${x + bulge},${by} ${x},${by}`;
+}
+function mid(a, b) {
+  if (a.l === b.l) return [a.x + W + 22, (a.y + b.y) / 2 + H / 2];
+  return [(a.x + b.x + W) / 2, (a.y + b.y) / 2 + H / 2 - 3];
+}
+
+function activeSet() {
+  if (state.overlay) {
+    const src = state.overlay.type === "wf" ? WF.find(w => w.k === state.overlay.k) : TOOLS.find(t => t.k === state.overlay.k);
+    return new Set(src.nodes);
+  }
+  return null;
+}
+
+function render() {
+  const act = activeSet();
+  const sel = state.sel;
+  N.forEach(n => {
+    const el = els[n.id];
+    el.hidden = n.out && !state.showOut;
+    el.classList.toggle("sel", n.id === sel);
+    el.classList.toggle("on", !!act && act.has(n.id) && n.id !== sel);
+    el.classList.toggle("dim", !!act && !act.has(n.id) && n.id !== sel);
+  });
+  let html = "", labels = "";
+  E.forEach(e => {
+    const a = byId[e.a], b = byId[e.b];
+    if ((a.out || b.out) && !state.showOut) return;
+    if (e.ctx && !state.showCtx) return;
+    let cls = "e" + (e.ctx ? " ctx" : "");
+    let hot = false;
+    if (act) hot = act.has(e.a) && act.has(e.b);
+    else hot = e.a === sel || e.b === sel;
+    if (hot) cls += " hot"; else if (act || sel) cls += " cold";
+    html += `<path class="${cls}" d="${edgePath(a, b)}"></path>`;
+    if (hot && !e.ctx) { const [mx, my] = mid(a, b); labels += `<text class="el" x="${mx}" y="${my}" text-anchor="middle">${e.id.replace(/(view|list)RequestId/, "requestId")}</text>`; }
+  });
+  svg.innerHTML = html + labels;
+  document.querySelectorAll("#wfChips .chip, #toolChips .chip").forEach(c => c.setAttribute("aria-pressed", String(!!state.overlay && state.overlay.k === c.dataset.k)));
+  renderDetail();
+}
+
+const idChip = id => `<span class="idc${CTX.has(id) ? " ctx" : ""}">${id.replace(/(view|list)RequestId/, "requestId")}</span>`;
+function renderDetail() {
+  const d = document.getElementById("detail");
+  const n = byId[state.sel];
+  const ov = state.overlay ? (state.overlay.type === "wf" ? WF.find(w => w.k === state.overlay.k) : TOOLS.find(t => t.k === state.overlay.k)) : null;
+  const ovHtml = ov ? `<div class="hint">Showing ${state.overlay.type === "wf" ? "workflow" : "tool"} <b>${ov.t || ov.k}</b>: ${ov.nodes.length} endpoints highlighted.${ov.does ? " " + ov.does : ""}</div>` : `<div class="hint">Pick a workflow or tool above to highlight its path.</div>`;
+  if (!n) { d.innerHTML = ovHtml; return; }
+  const producers = id => N.filter(x => x.g.includes(id)).map(x => x.t);
+  const needs = n.n.length ? n.n.map(id => `${idChip(id)}${CTX.has(id) ? "" : `<span class="hint">from ${producers(id).join(", ") || "caller"}</span><br>`}`).join("") : `<span class="hint">nothing</span>`;
+  const gives = n.g.length ? n.g.map(idChip).join("") : `<span class="hint">no IDs for other calls</span>`;
+  d.innerHTML = `
+    ${ovHtml}
+    <div style="display:grid;gap:6px">
+      <span class="eyebrow">${LANES[n.l].t}</span>
+      <h3>${n.t}</h3>
+      <div class="r-${n.r}" style="display:flex;gap:6px;flex-wrap:wrap"><span class="pill">${RISK[n.r]}</span>${n.out ? `<span class="pill noscope">Not in v1</span>` : `<span class="pill scope">In v1</span>`}</div>
+    </div>
+    <div class="full">${n.m} /2/0${n.p}</div>
+    <dl class="kv">
+      <dt>Needs</dt><dd>${needs}</dd>
+      <dt>Gives</dt><dd>${gives}</dd>
+      <dt>Returns</dt><dd>${n.f}</dd>
+      ${n.c ? `<dt>Limits</dt><dd>${n.c}</dd>` : ""}
+      <dt>Tools</dt><dd>${n.tools.length ? n.tools.map(t => `<code>${t}</code>`).join(", ") : `<span class="hint">none</span>`}</dd>
+      <dt>Source</dt><dd>${n.src ? n.src : `wiki <code>integration-api/${n.w}</code>`}</dd>
+    </dl>
+    ${n.v ? `<div class="warn"><b>Verify live.</b> ${n.v}</div>` : ""}`;
+}
+
+// Controls
+const wfChips = document.getElementById("wfChips");
+WF.forEach(w => { const c = document.createElement("button"); c.type = "button"; c.className = "chip"; c.dataset.k = w.k; c.textContent = w.t; c.addEventListener("click", () => { state.overlay = state.overlay && state.overlay.k === w.k ? null : { type: "wf", k: w.k }; render(); }); wfChips.appendChild(c); });
+const toolChips = document.getElementById("toolChips");
+TOOLS.forEach(t => { const c = document.createElement("button"); c.type = "button"; c.className = "chip tool"; c.dataset.k = t.k; c.textContent = t.k; c.addEventListener("click", () => { state.overlay = state.overlay && state.overlay.k === t.k ? null : { type: "tool", k: t.k }; render(); }); toolChips.appendChild(c); });
+document.getElementById("tOut").addEventListener("change", e => { state.showOut = e.target.checked; if (!state.showOut && byId[state.sel]?.out) state.sel = null; render(); });
+document.getElementById("tCtx").addEventListener("change", e => { state.showCtx = e.target.checked; render(); });
+
+document.getElementById("legend").innerHTML = Object.entries(RISK).map(([k, v]) => `<span class="r-${k}"><span class="sw" style="background:var(--rc)"></span>${v}</span>`).join("") + `<span><span class="sw" style="background:var(--warn-bg);border:1px solid var(--warn-ink)"></span>Needs live verification</span>`;
+
+const inScope = N.filter(n => !n.out).length;
+document.getElementById("stats").innerHTML = `<span><b>${N.length}</b> endpoints</span><span><b>${inScope}</b> in v1</span><span><b>${N.length - inScope}</b> mapped, not exposed</span><span><b>${E.filter(e => !e.ctx).length}</b> ID handoffs</span><span><b>${TOOLS.length}</b> proposed tools</span>`;
+
+const tb = document.querySelector("#toolTable tbody");
+TOOLS.forEach(t => {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td><code>${t.sig}</code></td><td>${t.does}</td><td>${t.nodes.map(id => byId[id].t).join(" · ")}</td><td>${t.wf.map(k => WF.find(w => w.k === k).t).join(", ")}</td>`;
+  tb.appendChild(tr);
+});
+
+const vl = document.getElementById("verifyList");
+N.filter(n => n.v).forEach(n => { const li = document.createElement("li"); li.innerHTML = `<b>${n.t}</b> <code>${n.m} ${shortPath(n.p)}</code>: ${n.v}`; vl.appendChild(li); });
+[["Large-volume reads", "How large one CSV page is, and how long Anaplan takes to prepare the export on a billion-cell module. This sets the default page-scan ceiling."],
+ ["Session cache", "The RAM ceiling (proposed 2–3M cells) and the 30-minute freshness limit, tested against real view sizes."]]
+  .forEach(([a, b]) => { const li = document.createElement("li"); li.innerHTML = `<b>${a}</b>: ${b}`; vl.appendChild(li); });
+
+render();
+</script>
